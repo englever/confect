@@ -19,7 +19,7 @@ const functionsEffect = Effect.fnUntraced(function* ({
   registeredFunctionsImportPath,
   useNode = false,
 }: {
-  functionNames: string[];
+  functionNames: ReadonlyArray<string>;
   registeredFunctionsImportPath: string;
   useNode?: boolean;
 }) {
