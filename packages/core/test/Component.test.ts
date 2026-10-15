@@ -581,6 +581,24 @@ describe("callback handles through a binding", () => {
     ).first,
   );
 
+  it("preserves callback handle fields when rebinding a Struct schema", () => {
+    const exported = Schema.Struct({ onEvent: Callback.handle(OnEvent) });
+    const rebound = Component.schema(bound, exported);
+
+    expectTypeOf(rebound.fields.onEvent.Type).toEqualTypeOf<
+      Callback.Handle<typeof OnEvent>
+    >();
+    const text = "function://;callbacks:onEvent";
+    const decoded = Schema.decodeSync(rebound)({ onEvent: text });
+    expectTypeOf(decoded.onEvent).toEqualTypeOf<
+      Callback.Handle<typeof OnEvent>
+    >();
+    expect(decoded.onEvent.convexFunctionName).toBe(text);
+    expect(Schema.encodeSync(rebound)({ onEvent: decoded.onEvent })).toEqual({
+      onEvent: text,
+    });
+  });
+
   it("passes a handle through bound args and returns as the component's handle", () => {
     expectTypeOf<Ref.Returns<typeof bound.deliveries.get>>().toEqualTypeOf<
       Callback.Handle<typeof OnEvent>
