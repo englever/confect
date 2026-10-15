@@ -69,9 +69,9 @@ layer(
         const labels = completions.map(({ identifier }) => identifier);
         expect(labels).toEqual(["GET /users/:id", "GET /members/:id"]);
         yield* Effect.sync(() => {
-          process.stdout.write(
-            `${JSON.stringify({ httpCompletions: completions })}\n`,
-          );
+          for (const { kind, udfType, identifier } of completions) {
+            process.stdout.write(`${kind} ${udfType} ${identifier}\n`);
+          }
         });
       }),
   );

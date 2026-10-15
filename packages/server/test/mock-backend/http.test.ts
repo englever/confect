@@ -11,7 +11,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import { vi } from "vitest";
 import { DatabaseWriter } from "./fixtures/confect/_generated/services";
 import { Id } from "./fixtures/confect/_generated/id";
-import http, { NotesApi } from "./fixtures/confect/http";
+import fixtureHttp, { NotesApi } from "./fixtures/confect/http";
 import * as TestConfect from "./TestConfect";
 import convexSchema from "./fixtures/confect/_generated/convexSchema";
 
@@ -174,12 +174,15 @@ describe("HttpRouter", () => {
           ["/literal/:status", "/literal/:status", "literal colon"],
         ]) {
           const response = yield* c.fetch(path, { method: "POST" });
-          expect(http.lookup(path, "POST")?.slice(1)).toEqual(["POST", label]);
+          expect(fixtureHttp.lookup(path, "POST")?.slice(1)).toEqual([
+            "POST",
+            label,
+          ]);
           expect(response.status).toBe(200);
           expect(yield* Effect.promise(() => response.json())).toBe(body);
         }
         const missing = yield* c.fetch("/literal/ready", { method: "POST" });
-        expect(http.lookup("/literal/ready", "POST")?.slice(1)).toEqual([
+        expect(fixtureHttp.lookup("/literal/ready", "POST")?.slice(1)).toEqual([
           "POST",
           "/literal/ready",
         ]);
