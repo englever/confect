@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
 import * as IdScope from "./IdScope";
+import type * as Ref from "./Ref";
 
 const ConvexId = "~@confect/core/ConvexId";
 const ConvexIdScope = "~@confect/core/ConvexIdScope";
@@ -43,48 +44,52 @@ export const scope = (ast: SchemaAST.AST): IdScope.IdScope =>
   SchemaAST.resolveAt<IdScope.IdScope>(ConvexIdScope)(ast) ?? IdScope.app;
 
 /**
- * Rebind only IDs owned by `From`; IDs belonging to other scopes survive.
+ * Rebind only IDs owned by `From`; IDs belonging to other scopes survive. A ref
+ * (such as a callback handle) names a function, not scoped data, so it passes
+ * through unchanged.
  */
 export type Rebase<
   A,
   From extends IdScope.IdScope,
   To extends IdScope.IdScope,
-> = A extends {
-  readonly "~@confect/core/ScopedId": {
-    readonly table: infer Table extends string;
-    readonly scope: infer Scope extends IdScope.IdScope;
-  };
-}
-  ? GenericId<Table, IdScope.Rebase<Scope, From, To>>
-  : A extends ConvexGenericId<infer Table>
-    ? From extends IdScope.App
-      ? GenericId<Table, To>
-      : A
-    : A extends
-          | string
-          | number
-          | boolean
-          | bigint
-          | symbol
-          | null
-          | undefined
-          | Date
-          | URL
-          | ArrayBuffer
-          | RegExp
-          | ((...args: never[]) => unknown)
-      ? A
-      : A extends Map<infer Key, infer Value>
-        ? Map<Rebase<Key, From, To>, Rebase<Value, From, To>>
-        : A extends ReadonlyMap<infer Key, infer Value>
-          ? ReadonlyMap<Rebase<Key, From, To>, Rebase<Value, From, To>>
-          : A extends Set<infer Value>
-            ? Set<Rebase<Value, From, To>>
-            : A extends ReadonlySet<infer Value>
-              ? ReadonlySet<Rebase<Value, From, To>>
-              : A extends object
-                ? { [K in keyof A]: Rebase<A[K], From, To> }
-                : A;
+> = A extends { readonly [Ref.TypeId]: Ref.TypeId }
+  ? A
+  : A extends {
+        readonly "~@confect/core/ScopedId": {
+          readonly table: infer Table extends string;
+          readonly scope: infer Scope extends IdScope.IdScope;
+        };
+      }
+    ? GenericId<Table, IdScope.Rebase<Scope, From, To>>
+    : A extends ConvexGenericId<infer Table>
+      ? From extends IdScope.App
+        ? GenericId<Table, To>
+        : A
+      : A extends
+            | string
+            | number
+            | boolean
+            | bigint
+            | symbol
+            | null
+            | undefined
+            | Date
+            | URL
+            | ArrayBuffer
+            | RegExp
+            | ((...args: never[]) => unknown)
+        ? A
+        : A extends Map<infer Key, infer Value>
+          ? Map<Rebase<Key, From, To>, Rebase<Value, From, To>>
+          : A extends ReadonlyMap<infer Key, infer Value>
+            ? ReadonlyMap<Rebase<Key, From, To>, Rebase<Value, From, To>>
+            : A extends Set<infer Value>
+              ? Set<Rebase<Value, From, To>>
+              : A extends ReadonlySet<infer Value>
+                ? ReadonlySet<Rebase<Value, From, To>>
+                : A extends object
+                  ? { [K in keyof A]: Rebase<A[K], From, To> }
+                  : A;
 
 /**
  * Scope annotations belong to both sides of a codec. Keep its transformations,
