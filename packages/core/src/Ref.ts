@@ -34,6 +34,11 @@ export interface Base<
   readonly "~RuntimeAndFunctionType": RuntimeAndFunctionType_;
   readonly "~FunctionVisibility": FunctionVisibility_;
   readonly "~Args": Args_;
+  // Concrete call inputs must not narrow across assignments. Erased refs and
+  // pagination constraints use index signatures and keep their broad variance.
+  readonly "~ArgsVariance"?: string extends keyof Args_
+    ? unknown
+    : (args: Args_) => void;
   readonly "~Returns": Returns_;
   readonly "~Error": Error_;
   readonly convexFunctionName: string;
@@ -145,6 +150,19 @@ export interface ConvexRef<
 > {
   readonly _tag: "Convex";
 }
+
+/**
+ * A ref's call contract without a visibility requirement. Use this for handlers
+ * shared by a component's public ref and its host's internal binding. Args,
+ * returns, errors, runtime and function kind remain constrained.
+ */
+export type Callable<Ref_ extends Any> = Ref<
+  GetRuntimeAndFunctionType<Ref_>,
+  FunctionVisibility,
+  Args<Ref_>,
+  Returns<Ref_>,
+  Error<Ref_>
+>;
 
 export type Any = Ref<any, any, any, any, any>;
 

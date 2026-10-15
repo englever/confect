@@ -60,6 +60,21 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  systemIds: {
+    document: {
+      scheduled: Id<"_scheduled_functions">;
+      storage: Id<"_storage">;
+      _id: Id<"systemIds">;
+      _creationTime: number;
+    };
+    fieldPaths: "_creationTime" | "_id" | "scheduled" | "storage";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
 };
 
 /**

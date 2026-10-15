@@ -1,3 +1,5 @@
+import { Component, GroupSpec, IdScope, Spec } from "@confect/core";
+import { componentsGeneric } from "convex/server";
 import type {
   FunctionReference,
   FunctionVisibility,
@@ -23,6 +25,70 @@ import * as PaginationOptions from "@confect/core/PaginationOptions";
 import * as PaginationResult from "@confect/core/PaginationResult";
 import * as Ref from "@confect/core/Ref";
 import type * as RuntimeAndFunctionType from "@confect/core/RuntimeAndFunctionType";
+
+describe("Callable", () => {
+  test("accepts own public and host internal refs with the same call contract", () => {
+    const functionSpec = FunctionSpec.publicQuery({
+      name: "greet",
+      args: () => ({ name: Schema.String }),
+      returns: () => Schema.String,
+      error: () => Schema.Struct({ message: Schema.String }),
+    });
+    const own = Ref.make("greetings", functionSpec);
+    const spec = Spec.make().add(
+      GroupSpec.makeAt("greetings").addFunction(functionSpec),
+    );
+    const native = componentsGeneric() as unknown as {
+      first: Component.Api<typeof spec, "first">;
+    };
+    const bound = Component.bind(
+      Component.make(spec, IdScope.component("greetings"), []),
+      native.first,
+    );
+    const use = (ref: Ref.Callable<typeof own>) =>
+      Ref.encodeArgsSync(ref, { name: "Ada" });
+    expect(use(own)).toEqual({ name: "Ada" });
+    expect(use(bound.greetings.greet)).toEqual({ name: "Ada" });
+    expectTypeOf<Ref.Args<Ref.Callable<typeof own>>>().toEqualTypeOf<{
+      readonly name: string;
+    }>();
+    expectTypeOf<
+      Ref.Returns<Ref.Callable<typeof own>>
+    >().toEqualTypeOf<string>();
+    expectTypeOf<Ref.Error<Ref.Callable<typeof own>>>().toEqualTypeOf<{
+      readonly message: string;
+    }>();
+    expectTypeOf<
+      Ref.GetFunctionVisibility<Ref.Callable<typeof own>>
+    >().toEqualTypeOf<"public" | "internal">();
+    const different = Ref.make(
+      "greetings",
+      FunctionSpec.publicQuery({
+        name: "count",
+        returns: () => Schema.Int,
+      }),
+    );
+    // @ts-expect-error A different function contract is incompatible.
+    const incompatible: Ref.Callable<typeof own> = different;
+    const requiresVolume = Ref.make(
+      "greetings",
+      FunctionSpec.publicQuery({
+        name: "loud",
+        args: () => ({ name: Schema.String, volume: Schema.Int }),
+        returns: () => Schema.String,
+        error: () => Schema.Struct({ message: Schema.String }),
+      }),
+    );
+    // @ts-expect-error A shared handler cannot supply an extra required argument.
+    const missingArgument: Ref.Callable<typeof own> = requiresVolume;
+    void missingArgument;
+    // @ts-expect-error A callable ref does not promise public visibility.
+    const publicOnly: Ref.AnyPublic = bound.greetings.greet as Ref.Callable<
+      typeof own
+    >;
+    void [incompatible, publicOnly];
+  });
+});
 
 describe("isRef", () => {
   const confect = Ref.make(

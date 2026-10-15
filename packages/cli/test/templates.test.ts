@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { IdScope } from "@confect/core";
 import type { LeafModule } from "@confect/cli/LeafModule";
 import { assemblyNodesFromLeaves } from "@confect/cli/SpecAssemblyNode";
 import * as templates from "@confect/cli/templates";
@@ -26,9 +27,17 @@ const leafAt = (pathSegments: [string, ...string[]]): LeafModule => {
 };
 
 layer(NodeServices.layer)("id", (test) => {
-  test.effect.each([{ tableNames: [] }, { tableNames: ["notes", "users"] }])(
-    "exports matching ID types and schemas for $tableNames and system tables",
-    ({ tableNames }) =>
+  test.effect.each([
+    { tableNames: [], scope: undefined },
+    { tableNames: ["notes", "users"], scope: undefined },
+    { tableNames: [], scope: IdScope.component("@example/counter") },
+    {
+      tableNames: ["notes", "users"],
+      scope: IdScope.component("@example/counter"),
+    },
+  ])(
+    "exports matching ID types and schemas for $tableNames and system tables in $scope",
+    ({ tableNames, scope }) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -37,7 +46,7 @@ layer(NodeServices.layer)("id", (test) => {
           directory: import.meta.dirname,
           prefix: "id-",
         });
-        const contents = yield* templates.id({ tableNames });
+        const contents = yield* templates.id({ tableNames, scope });
         expect(contents).toContain(
           'import type { SystemTableNames } from "convex/server";',
         );
@@ -45,9 +54,10 @@ layer(NodeServices.layer)("id", (test) => {
         yield* fs.writeFileString(
           path.join(directory, "consumer.ts"),
           `import { expectTypeOf } from "vitest";
-import type { GenericId } from "convex/values";
+import type { GenericId } from "@confect/core/GenericId";
+import type { IdScope } from "@confect/core";
 import type { SystemTableNames } from "convex/server";
-import { Id } from "./id";
+import { Id${scope === undefined ? "" : ", scope"} } from "./id";
 import type { Id as IdType, TableNames } from "./id";
 
 expectTypeOf<TableNames>().toEqualTypeOf<${tableNames.length === 0 ? "never" : tableNames.map((name) => `"${name}"`).join(" | ")}>();
@@ -56,12 +66,20 @@ ${[...tableNames, "_storage", "_scheduled_functions"]
   .map(
     (
       name,
-    ) => `expectTypeOf<Id<"${name}">>().toEqualTypeOf<GenericId<"${name}">>();
-expectTypeOf<IdType<"${name}">>().toEqualTypeOf<GenericId<"${name}">>();
+    ) => `expectTypeOf<Id<"${name}">>().toEqualTypeOf<GenericId<"${name}"${scope === undefined ? "" : ", typeof scope"}>>();
+expectTypeOf<IdType<"${name}">>().toEqualTypeOf<GenericId<"${name}"${scope === undefined ? "" : ", typeof scope"}>>();
 expectTypeOf(Id("${name}").Type).toEqualTypeOf<Id<"${name}">>();
 expectTypeOf(Id("${name}").Encoded).toEqualTypeOf<Id<"${name}">>();`,
   )
   .join("\n")}
+${
+  scope === undefined
+    ? ""
+    : `// @ts-expect-error Component system IDs cannot be used as app IDs.
+export const hostId: GenericId<"_storage"> = "" as Id<"_storage">;
+// @ts-expect-error Another component definition has a different scope.
+export const otherId: GenericId<"_storage", IdScope.Component<"@example/other">> = "" as Id<"_storage">;`
+}
 // @ts-expect-error
 Id("missing");
 // @ts-expect-error

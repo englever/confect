@@ -92,7 +92,36 @@ export default Table.make(() =>
 );
 ```
 
-`Component.id` also supports `_storage` and `_scheduled_functions` for generated contracts. Use `Component.schema(counter, exportedCodec)` to rebind IDs inside a codec exported by the component, including nested objects and arrays.
+`Component.id` also supports `_storage` and `_scheduled_functions` for generated contracts. Inside a component, the generated `Id` factory accepts those system tables too. `TableNames` continues to list only your user tables.
+
+```ts src/confect/codecs.ts
+import { Id } from "./_generated/id";
+import * as Schema from "effect/Schema";
+
+export const Attachments = Schema.Struct({
+  file: Id("_storage"),
+  job: Id("_scheduled_functions"),
+});
+```
+
+Use `Component.schema(counter, exportedCodec)` to rebind IDs inside an exported codec, including nested objects and arrays. A rebound Struct keeps its field map, so you can reuse its fields in host schemas.
+
+```ts confect/attachments.spec.ts
+import { Component, FunctionSpec, GroupSpec } from "@confect/core";
+import { Attachments } from "@example/counter/codecs";
+import * as Schema from "effect/Schema";
+import { counter } from "./counter";
+
+export default GroupSpec.make().addFunction(
+  FunctionSpec.publicMutation({
+    name: "attach",
+    args: () => Component.schema(counter, Attachments).fields,
+    returns: () => Schema.Null,
+  }),
+);
+```
+
+ID-free class values keep their nominal types and instance methods after decoding through a rebound schema. Classes with ID fields receive structural decoded types with rebound IDs. Rebinding preserves Struct operations and field maps; it does not promise other specialised schema members such as class constructors.
 
 Scopes change TypeScript identity and validator selection, not ID strings. At four mount levels, such as `left/deep/child/child`, installations can lose compile-time ID separation. IDs owned by the current database compile to `v.id(tableName)`; IDs from another database compile to `v.string()`. A foreign ID field therefore does not validate ownership at runtime. Validate untrusted references through the owning component and perform authorization in your application.
 
@@ -165,6 +194,25 @@ Convex rejects `"use node"` inside components. Keep Node actions in the host app
 Component codegen rejects `confect/auth.ts`. Configuration reads still use Convex's environment provider; declare component environment variables through the native component configuration API.
 
 For Effect HTTP routes, use `HttpRouter.forSchema(databaseSchema)(routes)` so route capabilities follow the component schema too. Mount the component's routes using Convex's component HTTP routing API. The schema-free `HttpRouter.make(routes)` remains the application API.
+
+Use `Ref.Callable<typeof ref>` to type a handler that accepts either a component's own public ref or the host's bound internal ref. It keeps the runtime, function kind, args, returns, and errors while accepting either visibility. For example, given a public `status` query that takes no args and returns a string:
+
+```ts src/confect/statusHandler.ts
+import type { Ref } from "@confect/core";
+import { QueryRunner } from "@confect/server";
+import * as Effect from "effect/Effect";
+import type refs from "./_generated/refs";
+
+export const readStatus = (
+  ref: Ref.Callable<typeof refs.public.counter.status>,
+) =>
+  Effect.gen(function* () {
+    const runner = yield* QueryRunner.QueryRunner;
+    return yield* runner.runQuery(ref);
+  });
+```
+
+A component HTTP handler can pass `refs.public.counter.status`; the host handler can pass `counter.counter.status` to the same helper. Callable refs are structural contracts, so a function with incompatible args, returns, or errors is rejected. Scoped IDs still differ between a definition and an installation. `Ref.Callable` removes only the visibility requirement.
 
 Convex's built-in database pagination is not supported inside components. Calling native `.paginate()` on a component reader fails to compile with "Native pagination is unavailable in components. Use QueryStream.paginate for index queries." This applies to index queries, search results, and component system tables. Application-target readers keep native pagination. Generic helpers that call native pagination must constrain their schema to an application target. A schema that could describe a component is rejected.
 

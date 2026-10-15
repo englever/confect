@@ -1,10 +1,12 @@
 import { GroupSpec, Spec } from "@confect/core";
+import authoring from "../authoring.spec";
 import counter from "../counter.spec";
 import deliveries from "../deliveries.spec";
 
 const spec: Spec.Spec<{
+  readonly authoring: GroupSpec.NamedAt<typeof authoring, "authoring">;
   readonly counter: GroupSpec.NamedAt<typeof counter, "counter">;
   readonly deliveries: GroupSpec.NamedAt<typeof deliveries, "deliveries">;
-}> = (Spec.make() as any).addAt("counter", (counter as any)).addAt("deliveries", (deliveries as any));
+}> = (Spec.make() as any).addAt("authoring", (authoring as any)).addAt("counter", (counter as any)).addAt("deliveries", (deliveries as any));
 
 export default spec;

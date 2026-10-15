@@ -329,6 +329,115 @@ describe("published component contracts", () => {
     Component.id(first, "missing");
   });
 
+  it("keeps rebound Struct fields available for host schemas", () => {
+    const exported = Schema.Struct({
+      id: ItemId,
+      label: Schema.String,
+      nested: Schema.Struct({ id: ItemId }),
+      optional: Schema.optionalKey(ItemId),
+    }).check(Schema.makeFilter((value) => value.label.length > 0));
+    const rebound = Component.schema(first, exported);
+    const host = Schema.Struct({ id: rebound.fields.id });
+    const decoded = Schema.decodeUnknownSync(rebound)({
+      id: "one",
+      label: "label",
+      nested: { id: "two" },
+    });
+    const id: Ref.Args<typeof first.items.get>["id"] = decoded.id;
+    expect(Schema.encodeSync(host)({ id })).toEqual({ id: "one" });
+    expect(GenericId.scope(rebound.fields.id.ast)).toBe(
+      GenericId.scope(Component.id(first, "items").ast),
+    );
+    expect(GenericId.scope(rebound.fields.nested.fields.id.ast)).toBe(
+      GenericId.scope(Component.id(first, "items").ast),
+    );
+    expect(
+      Schema.is(rebound)({ id: "one", label: "", nested: { id: "two" } }),
+    ).toBe(false);
+    expect(GenericId.scope(exported.fields.id.ast)).toBe(scope);
+    expectTypeOf(decoded.optional).toEqualTypeOf<typeof id | undefined>();
+    // @ts-expect-error Rebound fields do not accept the component definition's IDs.
+    const original: typeof ItemId.Type = decoded.id;
+    void original;
+  });
+
+  it("keeps constructor input types when reusing rebound fields", () => {
+    const rebound = Component.schema(
+      first,
+      Schema.Struct({ id: ItemId, label: Schema.String }),
+    );
+    const id = Schema.decodeUnknownSync(Component.id(first, "items"))("one");
+    expect(rebound.make({ id, label: "ready" })).toEqual({
+      id: "one",
+      label: "ready",
+    });
+    const invalid = () => {
+      // @ts-expect-error Rebinding keeps the label's constructor input type.
+      rebound.make({ id, label: 123 });
+      // @ts-expect-error Reusing fields keeps their constructor input types.
+      Schema.Struct(rebound.fields).make({ id, label: 123 });
+    };
+    void invalid;
+  });
+
+  it("leaves id-free nominal classes and their methods intact", () => {
+    class Label extends Schema.Class<Label>("Label")({ value: Schema.String }) {
+      private readonly marker = "label";
+      text() {
+        return `${this.marker}:${this.value}`;
+      }
+    }
+    const rebound = Component.schema(first, Label);
+    const value: Label = Schema.decodeSync(rebound)({ value: "ready" });
+    expect(value.text()).toBe("label:ready");
+    expect(rebound.fields.value).toBe(Schema.String);
+    expect(rebound).toBe(Label);
+    expectTypeOf<typeof rebound.Type>().toExtend<Label>();
+    const nested = Component.schema(first, Schema.Struct({ label: Label }));
+    const nestedValue: Label = Schema.decodeSync(nested)({
+      label: { value: "nested" },
+    }).label;
+    expect(nestedValue.text()).toBe("label:nested");
+  });
+
+  it("keeps id-free suspended class values nominal without forcing their fields", () => {
+    const thunk = vi.fn(() => Schema.String);
+    class Label extends Schema.Class<Label>("SuspendedLabel")({
+      value: Schema.suspend(thunk),
+    }) {
+      private readonly marker = "lazy";
+      text() {
+        return `${this.marker}:${this.value}`;
+      }
+    }
+    const rebound = Component.schema(first, Label);
+    expect(thunk).not.toHaveBeenCalled();
+    const value: Label = Schema.decodeSync(rebound)({ value: "ready" });
+    expect(value.text()).toBe("lazy:ready");
+    expect(Schema.decodeSync(rebound.fields.value)("field")).toBe("field");
+    // @ts-expect-error Rebinding does not promise schema constructors or statics.
+    const constructor: typeof Label = rebound;
+    void constructor;
+  });
+
+  it("rebases ID-bearing classes without claiming nominal identity", () => {
+    class Item extends Schema.Class<Item>("Item")({ id: ItemId }) {
+      private readonly marker = "item";
+      label() {
+        return this.marker;
+      }
+    }
+    const rebound = Component.schema(first, Item);
+    const value = Schema.decodeUnknownSync(rebound)({ id: "one" });
+    const id: Ref.Args<typeof first.items.get>["id"] = value.id;
+    expect(Ref.encodeArgsSync(first.items.get, { id })).toEqual({ id: "one" });
+    // @ts-expect-error Moving IDs to another scope does not preserve class identity.
+    const nominal: Item = value;
+    // @ts-expect-error Rebound IDs cannot be used in the definition scope.
+    const definitionId: typeof ItemId.Type = value.id;
+    void [nominal, definitionId];
+  });
+
   it("omits empty and internal-only groups while keeping nested public exports", () => {
     const nestedSpec = Spec.make().add(
       GroupSpec.makeAt("nested")
@@ -471,6 +580,24 @@ describe("callback handles through a binding", () => {
       }
     ).first,
   );
+
+  it("preserves callback handle fields when rebinding a Struct schema", () => {
+    const exported = Schema.Struct({ onEvent: Callback.handle(OnEvent) });
+    const rebound = Component.schema(bound, exported);
+
+    expectTypeOf(rebound.fields.onEvent.Type).toEqualTypeOf<
+      Callback.Handle<typeof OnEvent>
+    >();
+    const text = "function://;callbacks:onEvent";
+    const decoded = Schema.decodeSync(rebound)({ onEvent: text });
+    expectTypeOf(decoded.onEvent).toEqualTypeOf<
+      Callback.Handle<typeof OnEvent>
+    >();
+    expect(decoded.onEvent.convexFunctionName).toBe(text);
+    expect(Schema.encodeSync(rebound)({ onEvent: decoded.onEvent })).toEqual({
+      onEvent: text,
+    });
+  });
 
   it("passes a handle through bound args and returns as the component's handle", () => {
     expectTypeOf<Ref.Returns<typeof bound.deliveries.get>>().toEqualTypeOf<
