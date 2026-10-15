@@ -13,6 +13,10 @@ on:
         description: Unused build number above all existing builds. Leave empty for the next number.
         required: false
         type: string
+      version:
+        description: Check an existing build without publishing. Leave empty to publish a new build.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -42,8 +46,10 @@ jobs:
 
   publish:
     name: Publish to GitHub Packages
-    if: github.repository == 'englever/confect' && github.ref == 'refs/heads/englever/main' && github.event_name != 'pull_request'
+    if: github.repository == 'englever/confect' && github.ref == 'refs/heads/englever/main' && github.event_name != 'pull_request' && inputs.version == ''
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.stage.outputs.version }}
     concurrency:
       group: englever-github-packages
       cancel-in-progress: false
@@ -67,7 +73,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILD_NUMBER: ${{ inputs.n }}
-        run: bun scripts/renameForGithubPackages.ts "$RUNNER_TEMP/confect-packages" "$BUILD_NUMBER"
+        run: |
+          bun scripts/renameForGithubPackages.ts "$RUNNER_TEMP/confect-packages" "$BUILD_NUMBER"
+          jq -r '"version=\(.version)"' "$RUNNER_TEMP/confect-packages/plan.json" >> "$GITHUB_OUTPUT"
       - name: Publish staged tarballs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,4 +93,76 @@ jobs:
           path: |
             ${{ runner.temp }}/confect-packages/tarballs/*.tgz
             ${{ runner.temp }}/confect-packages/plan.json
+          if-no-files-found: error
+
+  install-check:
+    name: Install and exercise a fresh consumer
+    needs: publish
+    if: >-
+      !cancelled() && github.repository == 'englever/confect' &&
+      (needs.publish.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && inputs.version != ''))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      BUILD_VERSION: ${{ inputs.version || needs.publish.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Write the scratch consumer
+        run: |
+          bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$BUILD_VERSION"
+          # pnpm 12 ignores interpolated credentials in a project .npmrc.
+          printf '%s\n' \
+            '@englever:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$HOME/.npmrc"
+      - name: Install the published aliases with strict peers
+        working-directory: ${{ runner.temp }}/confect-consumer
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pnpm install --strict-peer-dependencies
+          bash install-command.txt
+          rm "$HOME/.npmrc"
+      - name: Generate code with the installed CLI
+        working-directory: ${{ runner.temp }}/confect-consumer
+        run: pnpm confect codegen
+      - name: Typecheck the consumer
+        working-directory: ${{ runner.temp }}/confect-consumer
+        run: pnpm exec tsc --noEmit
+      - name: Run the TestConfect query
+        working-directory: ${{ runner.temp }}/confect-consumer
+        run: pnpm exec vitest run
+      - name: Print the verified install command
+        working-directory: ${{ runner.temp }}/confect-consumer
+        run: |
+          {
+            echo 'INSTALL COMMAND:'
+            cat install-command.txt
+            echo
+            echo 'Registry: @englever:registry=https://npm.pkg.github.com in ~/.npmrc (trusted user config).'
+            echo 'Authentication: //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}; token needs packages:read.'
+            echo 'Use the generated package.json for the pinned consumer and test dependencies.'
+            echo 'pnpm-workspace.yaml (peer overrides, fresh-build exclusions and build policy):'
+            cat pnpm-workspace.yaml
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload the consumer lockfile and install recipe
+        uses: actions/upload-artifact@v7
+        with:
+          name: confect-consumer-${{ env.BUILD_VERSION }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/confect-consumer/pnpm-lock.yaml
+            ${{ runner.temp }}/confect-consumer/package.json
+            ${{ runner.temp }}/confect-consumer/pnpm-workspace.yaml
+            ${{ runner.temp }}/confect-consumer/install-command.txt
           if-no-files-found: error
