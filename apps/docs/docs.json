@@ -77,7 +77,8 @@
           "server/cron-jobs",
           "server/search",
           "server/components",
-          "server/environment-variables"
+          "server/environment-variables",
+          "server/backend-declaration"
         ]
       },
       {
