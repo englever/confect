@@ -371,6 +371,9 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
   const session = yield* Scope.Scope;
   const owned = yield* Scope.fork(session);
   const stopped = yield* Deferred.make<void>();
+  // Registered first, so it runs after the process and owner.lock finalizers
+  // however the scope closes.
+  yield* Scope.addFinalizer(owned, Deferred.succeed(stopped, undefined));
   const start = Effect.gen(function* () {
     yield* FileLock.acquire(path.join(directory, "owner.lock")).pipe(
       Effect.mapError((error) =>
@@ -471,7 +474,6 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
     yield* handle.exitCode.pipe(
       Effect.ignore,
       Effect.andThen(Scope.close(owned, Exit.void)),
-      Effect.andThen(Deferred.succeed(stopped, undefined)),
       Effect.forkIn(session),
     );
     return {
