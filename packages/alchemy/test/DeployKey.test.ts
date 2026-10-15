@@ -315,8 +315,7 @@ it.effect(
           version: "precompiled-2026-10-06-a3538c6",
           instanceSecret: "00ff",
           adminKey: `${deploymentName}|0a1b2c`,
-          port: 3300,
-          sitePort: 3301,
+          ports: { port: 3300, sitePort: 3301 },
         }),
       );
       const output = Result.getOrThrow(yield* reconcile);

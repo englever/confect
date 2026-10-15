@@ -39,7 +39,9 @@ const isAlive = (pid: number) => {
  * recovering are uninterruptible: Node cannot cancel a link or unlink it has
  * started, so stopping early would let one land after `.recovery` is released.
  * The recovery lock is never reclaimed: a crash inside its few file operations
- * leaves waiters timing out rather than overlapping.
+ * leaves waiters timing out rather than overlapping. A timeout that lands while
+ * an attempt succeeds still fails, and the published lock is removed only when
+ * the ambient scope closes.
  */
 export const acquire = Effect.fn("FileLock.acquire")(function* (
   file: string,

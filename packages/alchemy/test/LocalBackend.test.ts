@@ -420,7 +420,7 @@ describe("LocalBackend", () => {
       new LocalBackendError({ deploymentName: name, reason: "running" })
         .message,
     ).toBe(
-      `Local backend for ${name} is already running in another session over its data directory`,
+      `Local backend for ${name} is already running: stop the other alchemy dev session, or the backend process left over from one, that serves its data directory`,
     );
     expect(
       new LocalBackendError({

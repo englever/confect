@@ -62,7 +62,7 @@ export class LocalBackendError extends Schema.TaggedError<LocalBackendError>()(
       case "ports":
         return `${subject} could not get its ports; another process is using them`;
       case "running":
-        return `${subject} is already running in another session over its data directory`;
+        return `${subject} is already running: stop the other alchemy dev session, or the backend process left over from one, that serves its data directory`;
       case "spawn":
         return `${subject} could not be started`;
       case "exit":
@@ -92,8 +92,9 @@ const Identity = Schema.fromJsonString(
     version: Schema.String,
     instanceSecret: Schema.String,
     adminKey: Schema.String,
-    port: Schema.optionalKey(Schema.Int),
-    sitePort: Schema.optionalKey(Schema.Int),
+    ports: Schema.optionalKey(
+      Schema.Struct({ port: Schema.Int, sitePort: Schema.Int }),
+    ),
   }),
 );
 type Identity = typeof Identity.Type;
@@ -394,18 +395,14 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
       };
       yield* save(identity);
     }
-    const { port: savedPort, sitePort: savedSitePort } = identity;
-    let ports: { readonly port: number; readonly sitePort: number };
-    if (savedPort !== undefined && savedSitePort !== undefined) {
-      if (!(yield* isFree(savedPort)) || !(yield* isFree(savedSitePort)))
+    const ports = identity.ports ?? (yield* allocate);
+    if (identity.ports !== undefined) {
+      if (!(yield* isFree(ports.port)) || !(yield* isFree(ports.sitePort)))
         return yield* fail(
-          (yield* answer(Loopback.origin(savedPort))) === deploymentName
+          (yield* answer(Loopback.origin(ports.port))) === deploymentName
             ? "running"
             : "ports",
         );
-      ports = { port: savedPort, sitePort: savedSitePort };
-    } else {
-      ports = yield* allocate;
     }
 
     const url = Loopback.origin(ports.port);
@@ -468,7 +465,7 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
         orElse: () => Effect.fail(fail("timeout")),
       }),
     );
-    if (identity.port === undefined) yield* save({ ...identity, ...ports });
+    if (identity.ports === undefined) yield* save({ ...identity, ports });
     // An exited backend releases the data directory before `exited`
     // completes, so the deployment can be booted again in this session.
     yield* handle.exitCode.pipe(
