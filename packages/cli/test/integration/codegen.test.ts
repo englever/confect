@@ -4,6 +4,7 @@ import { expect, layer } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -13,6 +14,41 @@ import * as Project from "./Project";
 const stringLiteral = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 layer(NodeServices.layer)("built confect codegen", (it) => {
+  it.effect(
+    "rejects a component Node group without generated output but permits it in an application",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const project = yield* Project.makeNodeComponent;
+        const component = yield* project.start("codegen", [
+          "--component-dir",
+          "convex",
+        ]);
+        yield* component.waitFor(
+          'Group "tasks" in tasks.spec.ts uses the Node runtime. Convex components do not support Node.js functions.',
+        );
+        expect(yield* component.handle.exitCode).not.toBe(0);
+        expect(yield* Ref.get(component.output)).not.toContain(
+          "Generated files are up-to-date",
+        );
+        expect(yield* fs.exists(`${project.root}/confect/_generated`)).toBe(
+          false,
+        );
+        expect(yield* fs.exists(`${project.root}/convex/tasks.ts`)).toBe(false);
+        yield* project.write(
+          "convex/convex.config.ts",
+          'import { defineApp } from "convex/server";\nexport default defineApp();\n',
+        );
+        const app = yield* project.start("codegen");
+        yield* app.waitFor("Generated files are up-to-date");
+        expect(yield* app.handle.exitCode).toBe(0);
+        expect(
+          yield* fs.readFileString(`${project.root}/convex/tasks.ts`),
+        ).toContain('"use node"');
+      }).pipe(Effect.scoped),
+    { timeout: 30000 },
+  );
+
   it.effect(
     "typechecks 47 groups strictly for applications and authored components",
     () =>
