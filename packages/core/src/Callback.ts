@@ -186,24 +186,27 @@ type IsAny<A> = 0 extends 1 & A ? true : false;
 
 /**
  * A Confect ref typed from values alone, such as a bound component's ref, has
- * no codec types left to compare. True when any variant of `Ref_` is erased.
+ * no codec types left to compare, and middleware attachments typed without
+ * their specs erase their errors. True when any variant of `Ref_` is erased.
  */
 type IsErased<Ref_> = true extends (
   Ref_ extends { readonly _tag: "Confect" }
-    ? IsAny<Ref.ReturnsSchema<Ref_>["Encoded"]>
+    ? IsAny<Ref.ReturnsSchema<Ref_>["Encoded"]> | IsAny<Ref.EncodedError<Ref_>>
     : false
 )
   ? true
   : false;
 
 /**
- * The shape a value has on the wire: ID brands become `string`, arrays lose
- * `readonly`, and an optional field is the same whether or not it admits
- * `undefined`, which Convex never transmits. `unknown` stays `unknown`.
+ * The shape a value has on the wire: a component's ID brands become `string`,
+ * since the contract cannot name the host's scope, while the host's own IDs
+ * keep their table. Arrays and tuples lose `readonly`, and an optional field is
+ * the same whether or not it admits `undefined`, which Convex never transmits.
+ * `unknown` stays `unknown`.
  */
 type WireShape<A> = unknown extends A
   ? A
-  : A extends { readonly __tableName: string }
+  : A extends { readonly "~@confect/core/ScopedId": unknown }
     ? string
     : A extends
           | string
@@ -214,9 +217,7 @@ type WireShape<A> = unknown extends A
           | undefined
           | ArrayBuffer
       ? A
-      : A extends ReadonlyArray<infer Item>
-        ? Array<WireShape<Item>>
-        : { -readonly [Key in keyof A]: WireShape<Exclude<A[Key], undefined>> };
+      : { -readonly [Key in keyof A]: WireShape<Exclude<A[Key], undefined>> };
 
 type Identical<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
@@ -249,9 +250,10 @@ type Obligations<Contract_ extends Any, Ref_ extends Ref.Any> = [
   > extends true
     ? never
     : `the ref's encoded args differ from the args "${Contract_["id"]}" sends`,
-  [WireShape<EncodedReturns<Ref_>>] extends [
+  Identical<
     WireShape<EncodedReturns<Handle<Contract_>>>,
-  ]
+    WireShape<EncodedReturns<Ref_>>
+  > extends true
     ? never
     : `the ref's returns are encoded differently from the returns of "${Contract_["id"]}"`,
   [Ref.Error<Ref_>] extends [Error<Contract_>]
