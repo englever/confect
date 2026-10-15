@@ -2,6 +2,7 @@ import { Component, FunctionSpec, GroupSpec } from "@confect/core";
 import * as Schema from "effect/Schema";
 import {
   ClassProbe,
+  ProbeArgs,
   SystemIds,
 } from "../../components/counter/confect/authoring.spec";
 import { first } from "../componentBindings";
@@ -24,7 +25,7 @@ export default GroupSpec.make()
   .addFunction(
     FunctionSpec.publicQuery({
       name: "probe",
-      args: () => ({ value: Schema.String }),
+      args: () => Component.schema(first, ProbeArgs).fields,
       returns: () => Component.schema(first, ClassProbe),
     }),
   )

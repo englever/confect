@@ -7,6 +7,8 @@ export const SystemIds = Schema.Struct({
   scheduled: Id("_scheduled_functions"),
 });
 
+export const ProbeArgs = Schema.Struct({ value: Schema.String });
+
 export class ClassProbe extends Schema.Class<ClassProbe>("ClassProbe")({
   value: Schema.String,
 }) {
@@ -35,7 +37,7 @@ export default GroupSpec.make()
   .addFunction(
     FunctionSpec.publicQuery({
       name: "probe",
-      args: () => ({ value: Schema.String }),
+      args: () => ProbeArgs.fields,
       returns: () => ClassProbe,
     }),
   );
