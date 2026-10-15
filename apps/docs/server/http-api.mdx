@@ -127,7 +127,9 @@ With `{ api }`, Convex's completion logs and dashboard list endpoint patterns su
 
 Prefer `HttpApi` endpoints for application routes so Convex can show their methods and patterns. Plain `HttpRouter.add` routes and Scalar docs pages still work, but API reflection cannot list them in the dashboard. Requests outside the supplied API use the concrete path in completion logs, including unmatched requests. A plain Effect route that shadows an API pattern still receives that pattern's label. Explicit Convex routes added with `.route(...)` keep their own dashboard entries and labels.
 
-Omitting `{ api }` preserves the catch-all dashboard rows and completion labels.
+Convex also uses completion labels for metrics and usage. With the concrete-path fallback, distinct unmatched paths create distinct entries there.
+
+Omitting `{ api }` preserves the catch-all dashboard rows and completion labels. If the supplied API has no endpoints with methods Convex supports, the dashboard keeps the catch-all rows so component routers remain mountable.
 
 For a component, pass the option to the schema-bound constructor:
 

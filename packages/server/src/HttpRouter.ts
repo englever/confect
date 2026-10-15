@@ -250,10 +250,13 @@ const makeWithLayer = <
     );
 
     const getRoutes = convexHttpRouter.getRoutes;
-    convexHttpRouter.getRoutes = () => [
-      ...getRoutes().filter(([, , action]) => action !== httpAction),
-      ...reflected,
-    ];
+    convexHttpRouter.getRoutes = () =>
+      reflected.length === 0
+        ? getRoutes()
+        : [
+            ...getRoutes().filter(([, , action]) => action !== httpAction),
+            ...reflected,
+          ];
     const lookup = convexHttpRouter.lookup;
     convexHttpRouter.lookup = (path, method) => {
       const match = lookup(path, method);
