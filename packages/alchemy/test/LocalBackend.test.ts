@@ -201,4 +201,33 @@ describe("LocalBackend", () => {
         );
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it.live("fails typed instead of installing without a home directory", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "confect-local-backend-",
+      });
+      expect(
+        yield* boot(name, path.join(root, name)).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              fakeBackend().layer,
+              ConfigProvider.layer(ConfigProvider.fromUnknown({})),
+            ),
+          ),
+          Effect.scoped,
+          Effect.result,
+        ),
+      ).toEqual(
+        Result.fail(
+          new LocalBackendError({
+            deploymentName: name,
+            reason: "configuration",
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 });

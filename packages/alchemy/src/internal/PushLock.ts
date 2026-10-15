@@ -71,36 +71,34 @@ export const layer = (options?: { readonly timeout?: Duration.Input }) =>
               "locks",
             );
             const file = path.join(directory, `${deploymentName}.lock`);
-            const holder = yield* crypto.randomBytes(16).pipe(
-              Effect.flatMap((bytes) =>
-                encode({
-                  pid: process.pid,
-                  token: Buffer.from(bytes).toString("hex"),
-                }),
-              ),
+            const token = Buffer.from(
+              yield* crypto.randomBytes(16).pipe(Effect.mapError(failed)),
+            ).toString("hex");
+            const holder = yield* encode({ pid: process.pid, token }).pipe(
               Effect.mapError(failed),
             );
+            const claim = path.join(directory, `${deploymentName}.${token}`);
             yield* fs
               .makeDirectory(directory, { recursive: true })
               .pipe(Effect.mapError(failed));
-            const tryAcquire = fs
-              .writeFileString(file, holder, { flag: "wx", mode: 0o600 })
-              .pipe(
-                Effect.as(true),
-                Effect.catchReason("PlatformError", "AlreadyExists", () =>
-                  fs.readFileString(file).pipe(
-                    Effect.map(decode),
-                    Effect.catch(() => Effect.succeedNone),
-                    Effect.flatMap((current) =>
-                      current._tag === "Some" && !isAlive(current.value.pid)
-                        ? fs.remove(file, { force: true })
-                        : Effect.void,
-                    ),
-                    Effect.as(false),
+            // The holder is written in full before the hard link publishes it,
+            // so a lock file is never seen half-written.
+            const tryAcquire = fs.link(claim, file).pipe(
+              Effect.as(true),
+              Effect.catchReason("PlatformError", "AlreadyExists", () =>
+                fs.readFileString(file).pipe(
+                  Effect.map(decode),
+                  Effect.catch(() => Effect.succeedNone),
+                  Effect.flatMap((current) =>
+                    current._tag === "Some" && !isAlive(current.value.pid)
+                      ? fs.remove(file, { force: true })
+                      : Effect.void,
                   ),
+                  Effect.as(false),
                 ),
-                Effect.mapError(failed),
-              );
+              ),
+              Effect.mapError(failed),
+            );
             const acquire = tryAcquire.pipe(
               Effect.repeat({
                 until: (acquired) => acquired,
@@ -120,8 +118,15 @@ export const layer = (options?: { readonly timeout?: Duration.Input }) =>
               ),
               Effect.ignore,
             );
+            yield* fs
+              .writeFileString(claim, holder, { mode: 0o600 })
+              .pipe(Effect.mapError(failed));
             return yield* Effect.acquireUseRelease(
-              acquire,
+              acquire.pipe(
+                Effect.ensuring(
+                  fs.remove(claim, { force: true }).pipe(Effect.ignore),
+                ),
+              ),
               () => effect,
               () => release,
             );

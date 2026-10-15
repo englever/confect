@@ -213,12 +213,14 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
       Effect.orElseSucceed(() => undefined),
     );
 
+  const { HOME, USERPROFILE } = settings.environment;
+  const cache =
+    process.platform === "win32"
+      ? settings.LOCALAPPDATA ||
+        (USERPROFILE && path.join(USERPROFILE, "AppData", "Local"))
+      : HOME && path.join(HOME, ".cache");
+  if (!cache || !path.isAbsolute(cache)) return yield* fail("configuration");
   const install = Effect.gen(function* () {
-    const cache =
-      process.platform === "win32"
-        ? settings.LOCALAPPDATA ||
-          path.join(settings.environment.USERPROFILE, "AppData", "Local")
-        : path.join(settings.environment.HOME, ".cache");
     const binaries = path.join(cache, "convex", "binaries");
     const binary = path.join(binaries, backendVersion, executable);
     if (yield* fs.exists(binary)) return binary;

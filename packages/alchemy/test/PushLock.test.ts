@@ -142,6 +142,7 @@ describe("PushLock", () => {
       withDotAlchemy(({ lockFile }) =>
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
           const lock = yield* PushLock;
           const failed = yield* lock
             .withLock("happy-otter-123", Effect.fail("push failed"))
@@ -154,7 +155,7 @@ describe("PushLock", () => {
           yield* Effect.sleep("200 millis");
           expect(yield* fs.exists(lockFile)).toBe(true);
           yield* Fiber.interrupt(held);
-          expect(yield* fs.exists(lockFile)).toBe(false);
+          expect(yield* fs.readDirectory(path.dirname(lockFile))).toEqual([]);
         }),
       ).pipe(provide),
   );
