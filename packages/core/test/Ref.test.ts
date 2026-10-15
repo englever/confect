@@ -252,6 +252,69 @@ describe("FunctionReference", () => {
     >();
   });
 
+  test("keeps the declared returns and error codecs", () => {
+    class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+      id: Schema.String,
+    }) {}
+    const _spec = FunctionSpec.internalMutation({
+      name: "count",
+      returns: () => Schema.FiniteFromString,
+      error: () => NotFound,
+    });
+    type Ref_ = Ref.FromFunctionSpec<typeof _spec>;
+    expectTypeOf<Ref.ReturnsSchema<Ref_>>().toEqualTypeOf<
+      typeof Schema.FiniteFromString
+    >();
+    expectTypeOf<Ref.ReturnsSchema<Ref_>["Encoded"]>().toEqualTypeOf<string>();
+    expectTypeOf<Ref.ErrorSchema<Ref_>>().toEqualTypeOf<typeof NotFound>();
+    expectTypeOf<Ref.Returns<Ref_>>().toEqualTypeOf<number>();
+    expectTypeOf<Ref.Error<Ref_>>().toEqualTypeOf<NotFound>();
+  });
+
+  test("a function without an error schema has no error codec", () => {
+    const _spec = FunctionSpec.internalMutation({
+      name: "reset",
+      returns: () => Schema.Null,
+    });
+    type Ref_ = Ref.FromFunctionSpec<typeof _spec>;
+    expectTypeOf<Ref.ErrorSchema<Ref_>>().toBeNever();
+  });
+
+  test("ConfectRef keeps its codecs, so encodings tell refs apart", () => {
+    type StringOnWire = Ref.ConfectRef<
+      RuntimeAndFunctionType.ConvexMutation,
+      "internal",
+      {},
+      typeof Schema.FiniteFromString
+    >;
+    type NumberOnWire = Ref.ConfectRef<
+      RuntimeAndFunctionType.ConvexMutation,
+      "internal",
+      {},
+      typeof Schema.Finite
+    >;
+    expectTypeOf<
+      Ref.ReturnsSchema<StringOnWire>["Encoded"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<Ref.Returns<NumberOnWire>>().toEqualTypeOf<
+      Ref.Returns<StringOnWire>
+    >();
+    expectTypeOf<NumberOnWire>().not.toExtend<StringOnWire>();
+    expectTypeOf<NumberOnWire>().toExtend<Ref.AnyMutation>();
+  });
+
+  test("Ref built from value types erases its codecs", () => {
+    type Ref_ = Ref.Ref<
+      RuntimeAndFunctionType.ConvexQuery,
+      "public",
+      {},
+      number
+    >;
+    expectTypeOf<Ref.ReturnsSchema<Ref_>>().toEqualTypeOf<
+      Schema.Codec<any, any>
+    >();
+  });
+
   test("empty args", () => {
     const _spec = FunctionSpec.internalMutation({
       name: "reset",
