@@ -7,6 +7,7 @@ import type {
 } from "convex-test";
 import { convexTest } from "convex-test";
 import type {
+  GenericDataModel,
   GenericMutationCtx,
   GenericSchema,
   SchemaDefinition,
@@ -17,6 +18,32 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as MountedHttp from "./internal/MountedHttp";
+
+/**
+ * Register a component's Convex schema and modules at its installation path.
+ */
+export type RegisterComponent =
+  TestConvexForDataModelAndIdentity<GenericDataModel>["registerComponent"];
+
+/**
+ * An installed component path and the HTTP prefix exposed by its host.
+ */
+export type HttpMount = {
+  readonly componentPath: string;
+  readonly httpPrefix: string;
+};
+
+export type LayerOptions = {
+  /**
+   * Register component kits synchronously before the test service is available.
+   */
+  readonly register?: (registerComponent: RegisterComponent) => void;
+  /**
+   * Explicit HTTP mounts. The test layer does not evaluate convex.config.ts.
+   */
+  readonly httpMounts?: ReadonlyArray<HttpMount>;
+};
 
 export type TestConfectWithoutIdentity<
   ConfectSchema extends DatabaseSchema.AnyWithProps,
@@ -92,6 +119,7 @@ class TestConfectImplWithoutIdentity<
     private testConvex: TestConvexForDataModel<
       DataModel.ToConvex<DataModel.FromSchema<ConfectSchema>>
     >,
+    private mountedHttp: ReturnType<typeof MountedHttp.make>,
   ) {}
 
   readonly query = <QueryRef extends Ref.AnyQuery>(
@@ -186,7 +214,10 @@ class TestConfectImplWithoutIdentity<
   readonly fetch = <PathQueryFragment extends string>(
     pathQueryFragment: PathQueryFragment,
     init?: RequestInit,
-  ) => Effect.promise(() => this.testConvex.fetch(pathQueryFragment, init));
+  ) =>
+    Effect.promise(() =>
+      this.mountedHttp.fetch(this.testConvex, pathQueryFragment, init),
+    );
 
   readonly finishInProgressScheduledFunctions = () =>
     Effect.promise(() => this.testConvex.finishInProgressScheduledFunctions());
@@ -207,10 +238,12 @@ class TestConfectImpl<
     private testConvex: TestConvexForDataModelAndIdentity<
       DataModel.ToConvex<DataModel.FromSchema<ConfectSchema>>
     >,
+    private mountedHttp: ReturnType<typeof MountedHttp.make>,
   ) {
     this.testConfectImplWithoutIdentity = new TestConfectImplWithoutIdentity(
       confectSchema,
       testConvex,
+      mountedHttp,
     );
   }
 
@@ -218,13 +251,14 @@ class TestConfectImpl<
     new TestConfectImplWithoutIdentity(
       this.confectSchema,
       this.testConvex.withIdentity(userIdentity),
+      this.mountedHttp,
     );
 
   readonly registerComponent: TestConfect<ConfectSchema>["registerComponent"] =
     Effect.fn("TestConfect.registerComponent")(
       (componentPath, schema, modules) =>
         Effect.sync(() =>
-          this.testConvex.registerComponent(componentPath, schema, modules),
+          this.mountedHttp.register(componentPath, schema, modules),
         ),
     );
 
@@ -270,12 +304,13 @@ export const layer = <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
   databaseSchema: DatabaseSchema_,
   convexSchemaDefinition: SchemaDefinition<GenericSchema, true>,
   modules: Record<string, () => Promise<any>>,
+  options: LayerOptions = {},
 ): Layer.Layer<TestConfect<DatabaseSchema_>> =>
-  Layer.sync(
-    TestConfect<DatabaseSchema_>(),
-    () =>
-      new TestConfectImpl(
-        databaseSchema,
-        convexTest(convexSchemaDefinition, modules) as any,
-      ),
-  );
+  Layer.sync(TestConfect<DatabaseSchema_>(), () => {
+    const testConvex = convexTest(convexSchemaDefinition, modules);
+    const mountedHttp = MountedHttp.make(options.httpMounts ?? [], (...args) =>
+      testConvex.registerComponent(...args),
+    );
+    options.register?.(mountedHttp.register);
+    return new TestConfectImpl(databaseSchema, testConvex as any, mountedHttp);
+  });

@@ -1,5 +1,6 @@
 import type * as DeploymentApi from "@convex-dev/platform/deploymentApi";
 import type * as ManagementApi from "@convex-dev/platform/managementApi";
+import type { ProviderMode } from "alchemy/ProviderMode";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -10,6 +11,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import type * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as Loopback from "./internal/Loopback";
 
 export type Project = ManagementApi.ProjectResponse;
 export type CreatedProject = ManagementApi.PlatformCreateProjectResponse;
@@ -180,6 +182,7 @@ const ProjectsPageSchema = Schema.Struct({
 
 const make = Effect.fn("ConvexClient.make")(function* (options?: {
   readonly token?: Redacted.Redacted<string>;
+  readonly mode?: ProviderMode;
 }) {
   const http = yield* HttpClient.HttpClient;
   const managementAuthorization = Effect.gen(function* () {
@@ -306,6 +309,10 @@ const make = Effect.fn("ConvexClient.make")(function* (options?: {
   ) {
     const invalidUrl = () =>
       new ConvexApiError({ operation, code: "InvalidRequest" });
+    if (options?.mode === "local") {
+      if (!Loopback.isOrigin(url)) return yield* invalidUrl();
+      return `${url}/api/v1`;
+    }
     const parsed = yield* Effect.try({
       try: () => new URL(url),
       catch: invalidUrl,
@@ -526,7 +533,12 @@ export class ConvexClient extends Context.Service<
   Effect.Success<ReturnType<typeof make>>
 >()("@confect/alchemy/ConvexClient") {}
 
+/**
+ * `mode: "local"` sends deployment requests only to a loopback backend over
+ * HTTP; the default accepts only Convex cloud HTTPS origins.
+ */
 export const layer = (options?: {
   readonly token?: Redacted.Redacted<string>;
+  readonly mode?: ProviderMode;
 }) =>
   Layer.effect(ConvexClient, make(options).pipe(Effect.map(ConvexClient.of)));

@@ -5,15 +5,19 @@ import type {
 } from "@convex-dev/platform/managementApi";
 import { OwnedBySomeoneElse, Unowned } from "alchemy/AdoptPolicy";
 import { isResolved } from "alchemy/Diff";
+import * as LocalProvider from "alchemy/Local/LocalProvider";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
+import { moduleExtension } from "alchemy/Util/Node";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 
 import { ConvexClient } from "./ConvexClient";
 import type { Providers } from "./Providers";
 import { resourceName } from "./internal/ResourceIdentity";
 import { checkpointCreate, shouldAdopt } from "./internal/Lifecycle";
+import { boot, dataDirectories, remove } from "./internal/LocalBackend";
 
 export interface DeploymentProps {
   readonly projectId: number;
@@ -28,7 +32,10 @@ export interface DeploymentAttributes {
   readonly reference: string;
   readonly type: CreateDeploymentType;
   readonly url: string;
-  readonly region: RegionName;
+  /**
+   * Always set in the cloud; a local deployment echoes the requested region.
+   */
+  readonly region?: RegionName;
 }
 
 export type Deployment = Resource<
@@ -200,5 +207,71 @@ export const provider = Effect.gen(function* () {
     }),
   } satisfies Provider.ProviderServiceInput<Deployment>;
 });
+
+interface LocalConfig {
+  readonly name: string;
+  readonly props: DeploymentProps;
+}
+
+/**
+ * Under `alchemy dev` a deployment is a local Convex backend this provider
+ * owns. Alchemy's dev sidecar hosts it, so the backend keeps running across
+ * reloads of the stack and stops when the dev session ends. Its data lives in
+ * `.alchemy/convex/<stack>/<stage>/<name>` and is removed only when the
+ * deployment is destroyed.
+ */
+export const localLayer = LocalProvider.make(
+  Deployment,
+  new URL(
+    `./internal/LocalSidecar${moduleExtension(import.meta.url)}`,
+    import.meta.url,
+  ).href,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* dataDirectories;
+    return {
+      resolveConfig: Effect.fn("Deployment.localConfig")(function* ({
+        fqn,
+        instanceId,
+        news,
+      }) {
+        return {
+          name: yield* resourceName("deployment", fqn, instanceId),
+          props: news,
+        } satisfies LocalConfig;
+      }),
+      start: Effect.fn("Deployment.localStart")(function* ({
+        config,
+        invalidate,
+      }) {
+        const backend = yield* boot(config.name, directory(config.name));
+        yield* backend.exited.pipe(
+          Effect.andThen(invalidate),
+          Effect.forkScoped,
+        );
+        return {
+          projectId: config.props.projectId,
+          name: config.name,
+          reference: config.props.reference ?? config.name,
+          type: config.props.type,
+          url: backend.url,
+          ...(config.props.region === undefined
+            ? {}
+            : { region: config.props.region }),
+        } satisfies DeploymentAttributes;
+      }),
+      stop: Effect.fn("Deployment.localStop")(function* ({ fqn, instanceId }) {
+        const name = yield* resourceName("deployment", fqn, instanceId);
+        yield* remove(name, directory(name)).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+        );
+      }),
+    } satisfies LocalProvider.LocalProviderSpec<
+      Deployment,
+      LocalConfig,
+      Effect.Services<ReturnType<typeof boot>>
+    >;
+  }),
+);
 
 export const layer = Provider.effect(Deployment, provider);

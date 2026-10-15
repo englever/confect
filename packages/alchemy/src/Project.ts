@@ -180,4 +180,26 @@ export const provider = Effect.gen(function* () {
   } satisfies Provider.ProviderServiceInput<Project>;
 });
 
+/**
+ * Under `alchemy dev` a project needs no Convex account: it is a fixed local
+ * identity that local deployments ignore.
+ */
+export const localProvider = Effect.succeed({
+  reconcile: Effect.fn("Project.localReconcile")(function* ({
+    fqn,
+    instanceId,
+    news,
+  }) {
+    const name = news.name ?? (yield* resourceName("project", fqn, instanceId));
+    return {
+      projectId: 0,
+      teamId: news.teamId,
+      name,
+      slug: name,
+    } satisfies ProjectAttributes;
+  }),
+  delete: () => Effect.void,
+} satisfies Provider.ProviderServiceInput<Project>);
+
 export const layer = Provider.effect(Project, provider);
+export const localLayer = Provider.effect(Project, localProvider);

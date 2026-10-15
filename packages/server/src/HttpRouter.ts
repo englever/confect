@@ -17,6 +17,10 @@ import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import type * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
+import * as FindMyWay from "effect/http/FindMyWay";
+import * as HttpApi from "effect/http-api/HttpApi";
+import type * as HttpApiGroup from "effect/http-api/HttpApiGroup";
 import type * as Etag from "effect/http/Etag";
 import type * as HttpPlatform from "effect/http/HttpPlatform";
 import * as HttpRouter from "effect/http/HttpRouter";
@@ -99,25 +103,41 @@ export type Routes<Services_ = Services> = Layer.Layer<
  * for paths: place an API with `HttpApi.prefix` or absolute route paths.
  * Requests that match no route receive the Effect router's 404 response.
  *
+ * Supply `{ api }` with the `HttpApi` registered by the routes layer to show
+ * endpoint patterns in Convex completion logs and the dashboard. Requests that
+ * match no reflected endpoint keep the catch-all completion label. Without the
+ * option, Convex reports the catch-all registrations. Application endpoints
+ * must not overlap component HTTP mounts: Convex also uses dashboard route
+ * entries to select between application and component routers.
+ *
  * Plain Convex routes can still be added to the returned router—Convex matches
  * exact paths first and longer path prefixes before the catch-all, so they take
  * precedence.
  */
-export const make = (routes: Routes): ConvexHttpRouter =>
-  makeWithLayer(routes, RegisteredFunction.baseActionLayer);
+export const make = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  routes: Routes,
+  options?: { readonly api?: HttpApi.HttpApi<Id, Groups> | undefined },
+): ConvexHttpRouter =>
+  makeWithLayer(routes, RegisteredFunction.baseActionLayer, options?.api);
 
 /**
  * Derive HTTP capabilities and ID scopes from the generated database schema.
  * Component routes are relative to their installation's HTTP mount prefix.
+ * Supply `{ api }` as in {@link make}; labels stay component-relative.
  */
 export const forSchema =
   <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
     schema: DatabaseSchema_,
   ) =>
-  (routes: Routes<Handler.ActionServices<DatabaseSchema_>>): ConvexHttpRouter =>
+  <Id extends string, Groups extends HttpApiGroup.Constraint>(
+    routes: Routes<Handler.ActionServices<DatabaseSchema_>>,
+    options?: { readonly api?: HttpApi.HttpApi<Id, Groups> | undefined },
+  ): ConvexHttpRouter =>
     makeWithLayer<
       Handler.ActionServices<DatabaseSchema_>,
-      DataModel.ToConvex<DataModel.FromSchema<DatabaseSchema_>>
+      DataModel.ToConvex<DataModel.FromSchema<DatabaseSchema_>>,
+      Id,
+      Groups
     >(
       Match.value(schema.target.kind).pipe(
         Match.when("app", () => routes),
@@ -127,6 +147,7 @@ export const forSchema =
         Match.exhaustive,
       ),
       (ctx) => RegisteredFunction.actionLayer(schema, ctx),
+      options?.api,
     );
 
 // Convex uses a component-relative path to select its HTTP action but passes
@@ -145,9 +166,15 @@ const componentRouter = Layer.effect(
   }).pipe(Effect.orDie),
 );
 
-const makeWithLayer = <Services_, DataModel_ extends GenericDataModel>(
+const makeWithLayer = <
+  Services_,
+  DataModel_ extends GenericDataModel,
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
+>(
   routes: Routes<Services_>,
   layer: (ctx: GenericActionCtx<DataModel_>) => Layer.Layer<Services_>,
+  api: HttpApi.HttpApi<Id, Groups> | undefined,
 ): ConvexHttpRouter => {
   applyMonkeyPatches();
 
@@ -195,7 +222,128 @@ const makeWithLayer = <Services_, DataModel_ extends GenericDataModel>(
     convexHttpRouter.route(routeSpec);
   });
 
+  if (api !== undefined) {
+    const matcher = FindMyWay.make<string>();
+    const reflected: ReturnType<ConvexHttpRouter["getRoutes"]> = [];
+    HttpApi.reflect(api, {
+      onGroup: () => {},
+      onEndpoint: ({ endpoint }) => {
+        const method = ROUTABLE_HTTP_METHODS.find(
+          (candidate) => candidate === endpoint.method,
+        );
+        if (method === undefined) return;
+        const path = apiRouterPath(
+          endpoint.path as FindMyWay.PathInput,
+          endpoint.params,
+        );
+        matcher.on(method, path, endpoint.path);
+        // Effect also matches a wildcard route's base path without its slash.
+        if (path.endsWith("/*")) {
+          matcher.on(method, path.slice(0, -2) as `/${string}`, endpoint.path);
+        }
+        reflected.push([endpoint.path, method, httpAction]);
+      },
+    });
+    reflected.sort(
+      ([pathA, methodA], [pathB, methodB]) =>
+        pathA.localeCompare(pathB) || methodA.localeCompare(methodB),
+    );
+
+    const getRoutes = convexHttpRouter.getRoutes;
+    convexHttpRouter.getRoutes = () =>
+      reflected.length === 0
+        ? getRoutes()
+        : [
+            ...getRoutes().filter(([, , action]) => action !== httpAction),
+            ...reflected,
+          ];
+    const lookup = convexHttpRouter.lookup;
+    convexHttpRouter.lookup = (path, method) => {
+      const match = lookup(path, method);
+      if (match === null || match[0] !== httpAction) return match;
+      const normalized = match[1];
+      const reflectedPath = matcher.find(normalized, path)?.handler;
+      return reflectedPath === undefined
+        ? match
+        : [httpAction, normalized, reflectedPath];
+    };
+  }
+
   return convexHttpRouter;
+};
+
+/*!
+ * apiRouterPath is adapted from Effect 4.0.1 http-api/internal/path.ts.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2023 Effectful Technologies Inc
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+// Match Effect's HttpApiBuilder path normalization, which is not publicly
+// exported (effect/http-api/internal/path.ts). Undeclared colons are literals;
+// declared params followed by a literal suffix need an explicit regex boundary.
+const apiRouterPath = (
+  path: FindMyWay.PathInput,
+  params: Schema.Top | undefined,
+): FindMyWay.PathInput => {
+  if (params === undefined || !path.includes(":")) return path;
+  let ast = params.ast;
+  while (ast.encoding !== undefined) {
+    ast = ast.encoding[ast.encoding.length - 1].to;
+  }
+  if (!SchemaAST.isObjects(ast) || ast.indexSignatures.length !== 0)
+    return path;
+  const names = new Set(
+    ast.propertySignatures.map((property) => String(property.name)),
+  );
+  let normalized = "";
+  let depth = 0;
+  let regexStart = -1;
+  for (let i = 0; i < path.length; i++) {
+    const char = path[i];
+    if (depth > 0 || i === regexStart) {
+      normalized += char;
+      if (char === "\\") normalized += path[++i] ?? "";
+      else if (char === "(") depth++;
+      else if (char === ")") depth--;
+    } else if (char !== ":") {
+      normalized += char;
+    } else if (path[i + 1] === ":") {
+      normalized += "::";
+      i++;
+    } else {
+      const param = /^:(\w+)/.exec(path.slice(i));
+      if (param !== null && names.has(param[1])) {
+        normalized += param[0];
+        i += param[0].length - 1;
+        const next = path[i + 1];
+        if (next === "(") regexStart = i + 1;
+        else if (next !== undefined && !"/.-?".includes(next))
+          normalized += "(.*?)";
+      } else {
+        normalized += "::";
+      }
+    }
+  }
+  return normalized as FindMyWay.PathInput;
 };
 
 // These are necessary until the Convex runtime supports these APIs. See

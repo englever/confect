@@ -3,10 +3,12 @@ import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import { ConvexClient } from "./ConvexClient";
+import * as ConvexClient from "./ConvexClient";
 import type { Providers } from "./Providers";
 import { checkpointCreate, shouldAdopt } from "./internal/Lifecycle";
 
@@ -43,7 +45,7 @@ export class EnvironmentTargetChange extends Schema.TaggedError<EnvironmentTarge
 ) {}
 
 export const provider = Effect.gen(function* () {
-  const client = yield* ConvexClient;
+  const client = yield* ConvexClient.ConvexClient;
   const redacted = (value: string | Redacted.Redacted<string>) =>
     typeof value === "string" ? Redacted.make(value) : value;
   const valueAt = (
@@ -216,4 +218,37 @@ export const provider = Effect.gen(function* () {
   } satisfies Provider.ProviderServiceInput<EnvironmentVariables>;
 });
 
+/**
+ * Under `alchemy dev` variables are managed on the local backend. A backend
+ * that is not running keeps its variables in its retained data, so removing
+ * them is skipped rather than failing the apply.
+ */
+export const localProvider = Effect.map(
+  provider,
+  (service) =>
+    ({
+      ...service,
+      delete: (input) =>
+        // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- Alchemy's provider input type erases the delete error channel.
+        service.delete(input).pipe(
+          Effect.catchIf(
+            (error) =>
+              error._tag === "ConvexApiError" &&
+              error.code === "TransportError",
+            () => Effect.void,
+          ),
+        ),
+    }) satisfies Provider.ProviderServiceInput<EnvironmentVariables>,
+);
+
 export const layer = Provider.effect(EnvironmentVariables, provider);
+export const localLayer = Provider.effect(
+  EnvironmentVariables,
+  localProvider,
+).pipe(
+  Layer.provide(
+    ConvexClient.layer({ mode: "local" }).pipe(
+      Layer.provide(FetchHttpClient.layer),
+    ),
+  ),
+);

@@ -2,6 +2,13 @@ import { it, expect, assert } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Result from "effect/Result";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { AlchemyContext } from "alchemy/AlchemyContext";
+import { Stack } from "alchemy/Stack";
+import { LocalBackendError } from "../src/internal/LocalBackend";
 
 import * as DeployKey from "@confect/alchemy/DeployKey";
 import { key, lifecycle, mockClient } from "./fixtures/ConvexClient";
@@ -254,4 +261,65 @@ it.effect(
       expect(mock.client.deleteDeployKey).not.toHaveBeenCalled();
     }).pipe(Effect.provide(mock.layer));
   },
+);
+
+it.effect(
+  "uses the admin key of the local deployment it names, and fails typed without one",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dotAlchemy = yield* fs.makeTempDirectoryScoped({
+        prefix: "confect-local-key-",
+      });
+      const deploymentName = "confect-deployment-0123456789abcdef01234567";
+      const directory = path.join(
+        dotAlchemy,
+        "convex",
+        "notes",
+        "dev",
+        deploymentName,
+      );
+      const provider = yield* DeployKey.localProvider.pipe(
+        Effect.provideService(AlchemyContext, {
+          dotAlchemy,
+          dev: true,
+          adopt: false,
+        }),
+        Effect.provideService(Stack, {
+          name: "notes",
+          stage: "dev",
+          resources: {},
+          bindings: {},
+          actions: {},
+        }),
+      );
+      const reconcile = provider
+        .reconcile({
+          ...lifecycle,
+          news: { deploymentName },
+          olds: undefined,
+          output: undefined,
+        })
+        .pipe(Effect.result);
+      expect(yield* reconcile).toEqual(
+        Result.fail(
+          new LocalBackendError({ deploymentName, reason: "identity" }),
+        ),
+      );
+      yield* fs.makeDirectory(directory, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(directory, "identity.json"),
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+          name: deploymentName,
+          version: "precompiled-2026-10-06-a3538c6",
+          instanceSecret: "00ff",
+          adminKey: `${deploymentName}|0a1b2c`,
+          ports: { port: 3300, sitePort: 3301 },
+        }),
+      );
+      const output = Result.getOrThrow(yield* reconcile);
+      expect(Redacted.value(output.deployKey)).toBe(`${deploymentName}|0a1b2c`);
+      expect(output.deploymentName).toBe(deploymentName);
+    }).pipe(Effect.provide(NodeServices.layer)),
 );

@@ -3,6 +3,8 @@ import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
@@ -10,6 +12,7 @@ import { ConvexClient } from "./ConvexClient";
 import type { Providers } from "./Providers";
 import { resourceName } from "./internal/ResourceIdentity";
 import { checkpointCreate } from "./internal/Lifecycle";
+import { adminKey, dataDirectories } from "./internal/LocalBackend";
 
 export interface DeployKeyProps {
   readonly deploymentName: string;
@@ -213,4 +216,41 @@ export const provider = Effect.gen(function* () {
   } satisfies Provider.ProviderServiceInput<DeployKey>;
 });
 
+/**
+ * Under `alchemy dev` the deploy key is the admin key the local deployment
+ * generated. It is read on every apply, so a recreated backend's new key
+ * replaces the old one.
+ */
+export const localProvider = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const directory = yield* dataDirectories;
+  return {
+    diff: () => Effect.succeed({ action: "update" }),
+    reconcile: Effect.fn("DeployKey.localReconcile")(function* ({
+      fqn,
+      instanceId,
+      news,
+    }) {
+      const name = news.name ?? (yield* resourceName("key", fqn, instanceId));
+      const deployKey = yield* adminKey(
+        news.deploymentName,
+        directory(news.deploymentName),
+      ).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+      );
+      return {
+        deploymentName: news.deploymentName,
+        keyId: 0,
+        name,
+        deployKey,
+        allowedActions: news.allowedActions ?? [],
+      } satisfies DeployKeyAttributes;
+    }),
+    delete: () => Effect.void,
+  } satisfies Provider.ProviderServiceInput<DeployKey>;
+});
+
 export const layer = Provider.effect(DeployKey, provider);
+export const localLayer = Provider.effect(DeployKey, localProvider);

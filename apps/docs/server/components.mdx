@@ -216,12 +216,38 @@ Confect does not run Convex's component codegen, build your npm package, or publ
 
 ## Test a component
 
-Register the component's generated Convex schema and module loaders with `TestConfect` before calling bound references:
+Publish a `/testing` helper that registers the component's generated Convex schema and module loaders. Its `register` function accepts `TestConfect.RegisterComponent` and the installation path:
 
-```ts
-const t = yield * TestConfect.TestConfect<typeof applicationSchema>();
-yield * t.registerComponent("counter", componentConvexSchema, componentModules);
-yield * t.mutation(counter.counter.create, { count: 3 });
+```ts src/testing.ts
+import type { TestConfect } from "@confect/test";
+import schema from "./convex/schema";
+
+const modules = import.meta.glob("./convex/**/!(*.*.*)*.*s");
+
+export const register = (
+  registerComponent: TestConfect.RegisterComponent,
+  name: string,
+) => registerComponent(name, schema, modules);
 ```
 
-The registration path must match the installed component path. The module map follows `convex-test` conventions and includes the component's Convex `_generated` files. Register the same definition at two paths to test instance isolation. A published package can provide its own `/test` helper that supplies this schema and module map.
+Pass the helper through the `register` option when constructing the host's test layer:
+
+```ts
+const layer = TestConfect.layer(
+  applicationSchema,
+  convexSchema,
+  applicationModules,
+  {
+    register: (registerComponent) => register(registerComponent, "counter"),
+  },
+);
+
+const program = Effect.gen(function* () {
+  const t = yield* TestConfect.TestConfect<typeof applicationSchema>();
+  yield* t.mutation(counter.counter.create, { count: 3 });
+}).pipe(Effect.provide(layer));
+```
+
+The registration path must match the installed component path. The module map follows `convex-test` conventions and includes the component's Convex `_generated` files. Register the same definition at two paths to test instance isolation. The effectful `t.registerComponent(path, schema, modules)` method remains available for registration after setup.
+
+To fetch component HTTP routes, also list each installation's `componentPath` and `httpPrefix` in the layer's `httpMounts` option, then call `t.fetch("/counter/route")` with the full mounted path. A component kit used at multiple HTTP mounts must supply a fresh router factory in its HTTP module loader. See [mounted component HTTP tests](/guides/testing#fetch-mounted-component-routes) for setup and the process environment, module cache, and transport limits.

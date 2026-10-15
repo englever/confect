@@ -426,6 +426,7 @@ describe("ConvexClient", () => {
         "https://happy-otter-123.convex.cloud:444",
         "https://happy-otter-123.convex.cloud.attacker.example",
         "https://attacker.example",
+        "http://127.0.0.1:3300",
         "not a URL",
       ];
       return Effect.gen(function* () {
@@ -596,4 +597,45 @@ describe("ConvexClient", () => {
       Effect.provideService(FetchHttpClient.Fetch, fetch),
     );
   });
+
+  it.effect(
+    "sends environment requests from a local client only to a loopback backend",
+    () => {
+      const http = mockHttp([
+        Response.json({ environmentVariables: { ORIGIN: "local" } }),
+      ]);
+      return Effect.gen(function* () {
+        const client = yield* ConvexClient.ConvexClient;
+        const variables = yield* client.listEnvironmentVariables(
+          "http://127.0.0.1:3300",
+          deployKey,
+        );
+        expect(Redacted.value(variables.ORIGIN!)).toBe("local");
+        expect(http.requests[0]?.url).toBe(
+          "http://127.0.0.1:3300/api/v1/list_environment_variables",
+        );
+        for (const url of [
+          deploymentUrl,
+          "http://localhost:3300",
+          "http://127.0.0.1:3300/api",
+          "http://192.168.1.2:3300",
+        ]) {
+          const failure = yield* client
+            .listEnvironmentVariables(url, deployKey)
+            .pipe(Effect.flip);
+          expect(failure).toEqual(
+            new ConvexClient.ConvexApiError({
+              operation: "listEnvironmentVariables",
+              code: "InvalidRequest",
+            }),
+          );
+        }
+        expect(http.requests).toHaveLength(1);
+      }).pipe(
+        Effect.provide(
+          ConvexClient.layer({ mode: "local" }).pipe(Layer.provide(http.layer)),
+        ),
+      );
+    },
+  );
 });

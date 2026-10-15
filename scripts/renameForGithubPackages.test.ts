@@ -14,35 +14,19 @@ import { publishedPackages } from "./checkPackContents";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-const internalPeers = {
-  cli: {
-    "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7",
-    "@confect/server": "npm:@englever/confect-server@10.2.0-englever.7",
-  },
-  core: {},
-  foldkit: {
-    "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7",
-    "@confect/js": "npm:@englever/confect-js@10.2.0-englever.7",
-  },
-  js: { "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7" },
-  react: { "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7" },
-  server: { "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7" },
-  test: {
-    "@confect/core": "npm:@englever/confect-core@10.2.0-englever.7",
-    "@confect/server": "npm:@englever/confect-server@10.2.0-englever.7",
-  },
-};
+const directories = await Effect.runPromise(
+  publishedPackages().pipe(Effect.provide(BunServices.layer)),
+);
 
-test.each(Object.entries(internalPeers))(
+test.each(directories)(
   "renames the real %s manifest without changing its input",
-  (name, peers) =>
+  (directory) =>
     Effect.runPromise(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const input = yield* fs
           .readFileString(
-            new URL(`../packages/${name}/package.json`, import.meta.url)
-              .pathname,
+            new URL(`../${directory}/package.json`, import.meta.url).pathname,
           )
           .pipe(
             Effect.flatMap(
@@ -52,7 +36,7 @@ test.each(Object.entries(internalPeers))(
         const before = encodeJson(input);
         const output = renameForGithubPackages(input, "10.2.0-englever.7");
         expect(output).toMatchObject({
-          name: `@englever/confect-${name}`,
+          name: `@englever/confect-${input.name.slice("@confect/".length)}`,
           version: "10.2.0-englever.7",
           repository: {
             type: "git",
@@ -61,16 +45,25 @@ test.each(Object.entries(internalPeers))(
           publishConfig: { registry: "https://npm.pkg.github.com" },
           exports: input.exports,
         });
-        expect(
-          Object.fromEntries(
-            Object.entries(output.peerDependencies ?? {}).filter(([key]) =>
-              key.startsWith("@confect/"),
-            ),
-          ),
-        ).toEqual(peers);
-        expect(output.peerDependencies?.effect).toBe(
-          input.peerDependencies?.effect,
-        );
+        for (const field of [
+          "dependencies",
+          "peerDependencies",
+          "optionalDependencies",
+        ] as const) {
+          const dependencies = input[field];
+          expect(output[field]).toEqual(
+            dependencies === undefined
+              ? undefined
+              : Object.fromEntries(
+                  Object.entries(dependencies).map(([name, range]) => [
+                    name,
+                    name.startsWith("@confect/")
+                      ? `npm:@englever/confect-${name.slice("@confect/".length)}@10.2.0-englever.7`
+                      : range,
+                  ]),
+                ),
+          );
+        }
         expect(output.devDependencies).toBeUndefined();
         expect(output.scripts).toBeUndefined();
         expect(encodeJson(input)).toBe(before);
@@ -203,15 +196,3 @@ test("rejects an unused override below the highest existing number", () => {
     highestBuild: 10,
   });
 });
-
-test("has rewrite fixtures for every published package", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const directories = yield* publishedPackages();
-      expect(directories.sort()).toEqual(
-        Object.keys(internalPeers)
-          .map((name) => `packages/${name}`)
-          .sort(),
-      );
-    }).pipe(Effect.provide(BunServices.layer)),
-  ));

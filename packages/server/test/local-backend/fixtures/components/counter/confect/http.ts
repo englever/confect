@@ -1,11 +1,12 @@
 import { Http } from "@confect/core";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { ActionCtx } from "./_generated/services";
 import { CounterApi } from "./api";
 
-const handlers = HttpApiBuilder.group(CounterApi, "health", (handle) =>
+const health = HttpApiBuilder.group(CounterApi, "health", (handle) =>
   handle
     .handle("health", () =>
       Effect.map(ActionCtx, (ctx) =>
@@ -17,4 +18,11 @@ const handlers = HttpApiBuilder.group(CounterApi, "health", (handle) =>
     .handle("echo", ({ payload }) => Effect.succeed(payload)),
 );
 
-export default Http.make({ api: CounterApi, handlers });
+const users = HttpApiBuilder.group(CounterApi, "users", (handle) =>
+  handle.handle("get", ({ params }) => Effect.succeed(params.id)),
+);
+
+export default Http.make({
+  api: CounterApi,
+  handlers: Layer.mergeAll(health, users),
+});
