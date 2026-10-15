@@ -50,6 +50,6 @@ When the validators differ, `Callback.create` fails with a `CallbackContractMism
 The host function does not satisfy callback contract "email/onEvent": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.
 ```
 
-Args and returns must compile to the same validators, and every error the function may fail with, its middleware's included, must compile to one the contract declares. A plain Convex reference has no codecs to compile and is checked by its types only. Codecs that compile to the same validator, such as `Schema.DateFromString` and `Schema.DurationFromString` or two schemas that differ only in a refinement, are not told apart.
+Args and returns must compile to the same validators, and every error the function may fail with, its middleware's included, must be one the contract declares or compile to one. A plain Convex reference has no codecs to compile and is checked by its types only. Codecs that compile to the same validator, such as `Schema.DateFromString` and `Schema.DurationFromString` or two schemas that differ only in a refinement, are not told apart.
 
 Generated references now carry the returns and error codecs their functions declare, so two references whose return or error schemas differ are no longer assignable to each other, even when both encode and decode the same types. References built directly from a function spec now include the errors of the function's middleware, as generated references already did.
