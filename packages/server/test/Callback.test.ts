@@ -15,7 +15,7 @@ import * as Callback from "@confect/server/Callback";
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { vi } from "vitest";
 
@@ -95,7 +95,7 @@ const created = <A, E>(effect: Effect.Effect<A, E>) =>
       asyncSyscall: () =>
         Promise.resolve(JSON.stringify("function://;callbacks:onEvent")),
     });
-    return Effect.exit(effect);
+    return Effect.result(effect);
   }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals())));
 
 const mismatch = (
@@ -104,7 +104,7 @@ const mismatch = (
   expected: Schema.Json,
   actual: Schema.Json,
 ) =>
-  Exit.fail(
+  Result.fail(
     new Callback.CallbackContractMismatch({ contract, side, expected, actual }),
   );
 
@@ -282,7 +282,7 @@ describe("create checks the host's validators", () => {
           }),
         );
         expect(
-          Exit.isSuccess(yield* created(Callback.create(Mixed, mixed))),
+          Result.isSuccess(yield* created(Callback.create(Mixed, mixed))),
         ).toBe(true);
       }),
   );
@@ -350,7 +350,10 @@ describe("create types", () => {
   );
 
   it("accepts a matching internal or public ref", () => {
-    type Created = Effect.Effect<CoreCallback.Handle<typeof OnEvent>>;
+    type Created = Effect.Effect<
+      CoreCallback.Handle<typeof OnEvent>,
+      Callback.CallbackContractMismatch
+    >;
     expectTypeOf(Callback.create(OnEvent, onEvent)).toEqualTypeOf<Created>();
     expectTypeOf(Callback.create(OnEvent, publicRef)).toEqualTypeOf<Created>();
     expectTypeOf(Callback.create(OnEvent, noError)).toEqualTypeOf<Created>();
@@ -588,7 +591,10 @@ describe("create types", () => {
       }),
     );
     expectTypeOf(Callback.create(Scoped, scoped)).toEqualTypeOf<
-      Effect.Effect<CoreCallback.Handle<typeof Scoped>>
+      Effect.Effect<
+        CoreCallback.Handle<typeof Scoped>,
+        Callback.CallbackContractMismatch
+      >
     >();
   });
 
@@ -691,7 +697,10 @@ describe("create types", () => {
       ),
     );
     expectTypeOf(Callback.create(Tagged, native)).toEqualTypeOf<
-      Effect.Effect<CoreCallback.Handle<typeof Tagged>>
+      Effect.Effect<
+        CoreCallback.Handle<typeof Tagged>,
+        Callback.CallbackContractMismatch
+      >
     >();
   });
 
