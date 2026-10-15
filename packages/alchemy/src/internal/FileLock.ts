@@ -35,9 +35,11 @@ const isAlive = (pid: number) => {
  * published with a hard link, which fails when the lock exists, so a visible
  * lock always names its holder. A lock whose holder has exited is removed only
  * under `<file>.recovery`, after re-reading that the same dead holder still
- * owns it, so a successor's lock is never removed in its place. The recovery
- * lock is never reclaimed: a crash inside its few file operations leaves
- * waiters timing out rather than overlapping.
+ * owns it, so a successor's lock is never removed in its place. Publishing and
+ * recovering are uninterruptible: Node cannot cancel a link or unlink it has
+ * started, so stopping early would let one land after `.recovery` is released.
+ * The recovery lock is never reclaimed: a crash inside its few file operations
+ * leaves waiters timing out rather than overlapping.
  */
 export const acquire = Effect.fn("FileLock.acquire")(function* (
   file: string,
@@ -81,30 +83,36 @@ export const acquire = Effect.fn("FileLock.acquire")(function* (
       Effect.map(decodeHolder),
       Effect.orElseSucceed(() => Option.none()),
     );
-  const reclaim = Effect.gen(function* () {
-    const stale = yield* read(file);
-    if (Option.isNone(stale) || isAlive(stale.value.pid)) return;
-    const recovering = yield* fs.link(claim, recovery).pipe(
+  const publish = (target: string) =>
+    fs.link(claim, target).pipe(
       Effect.as(true),
       Effect.catchReason("PlatformError", "AlreadyExists", () =>
         Effect.succeed(false),
       ),
     );
-    if (!recovering) return;
-    yield* read(file).pipe(
+  // Whether a dead holder's lock was removed.
+  const reclaim = Effect.gen(function* () {
+    const stale = yield* read(file);
+    if (Option.isNone(stale) || isAlive(stale.value.pid)) return false;
+    if (!(yield* publish(recovery))) return false;
+    return yield* read(file).pipe(
       Effect.flatMap((current) =>
         Option.isSome(current) && current.value.token === stale.value.token
-          ? fs.remove(file)
-          : Effect.void,
+          ? fs.remove(file).pipe(Effect.as(true))
+          : Effect.succeed(false),
       ),
       Effect.ensuring(removeIfOwned(recovery)),
     );
   });
-  const attempt = fs.link(claim, file).pipe(
-    Effect.as(true),
-    Effect.catchReason("PlatformError", "AlreadyExists", () =>
-      reclaim.pipe(Effect.as(false)),
+  const attempt = publish(file).pipe(
+    Effect.flatMap((acquired) =>
+      acquired
+        ? Effect.succeed(true)
+        : Effect.flatMap(reclaim, (removed) =>
+            removed ? publish(file) : Effect.succeed(false),
+          ),
     ),
+    Effect.uninterruptible,
     Effect.mapError(failed),
   );
 
