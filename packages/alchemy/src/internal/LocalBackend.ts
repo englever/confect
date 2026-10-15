@@ -113,23 +113,28 @@ const executable =
     ? "convex-local-backend.exe"
     : "convex-local-backend";
 
-const listen = (port: number) =>
-  Effect.callback<Server | undefined>((resume) => {
-    const server = createServer();
-    server.once("error", () => resume(Effect.undefined));
-    server.listen(port, "127.0.0.1", () => resume(Effect.succeed(server)));
-  });
-
 const close = (server: Server) =>
   Effect.callback<void>((resume) => {
     server.close(() => resume(Effect.void));
   });
 
+// A server listening on `port`, or undefined when the port is taken, closed
+// with the scope. Listening is uninterruptible, so an interrupted probe never
+// leaves a server bound to the port.
+const listen = (port: number) =>
+  Effect.acquireRelease(
+    Effect.callback<Server | undefined>((resume) => {
+      const server = createServer();
+      server.once("error", () => resume(Effect.undefined));
+      server.listen(port, "127.0.0.1", () => resume(Effect.succeed(server)));
+    }),
+    (server) => (server ? close(server) : Effect.void),
+  );
+
 const isFree = (port: number) =>
   listen(port).pipe(
-    Effect.flatMap((server) =>
-      server ? close(server).pipe(Effect.as(true)) : Effect.succeed(false),
-    ),
+    Effect.map((server) => server !== undefined),
+    Effect.scoped,
   );
 
 const portOf = (server: Server | undefined) => {
@@ -300,11 +305,10 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
 
   const allocate = Effect.gen(function* () {
     if (Option.isNone(range) || Option.isNone(range.value)) {
-      const servers = [yield* listen(0), yield* listen(0)];
       // A closed server no longer has an address.
-      const [port, sitePort] = servers.map(portOf);
-      yield* Effect.forEach(servers, (server) =>
-        server ? close(server) : Effect.void,
+      const [port, sitePort] = yield* Effect.all([listen(0), listen(0)]).pipe(
+        Effect.map((servers) => servers.map(portOf)),
+        Effect.scoped,
       );
       if (port === undefined || sitePort === undefined)
         return yield* fail("ports");
@@ -357,7 +361,12 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
         { mode: 0o600 },
       );
       yield* fs.rename(temp, file);
-    }).pipe(Effect.mapError(() => fail("identity")));
+    }).pipe(
+      // Node cannot cancel a write or rename it has started; finishing it
+      // keeps a pending rename from landing after owner.lock is released.
+      Effect.uninterruptible,
+      Effect.mapError(() => fail("identity")),
+    );
 
   const session = yield* Scope.Scope;
   const owned = yield* Scope.fork(session);
