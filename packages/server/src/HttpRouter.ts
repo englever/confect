@@ -17,6 +17,9 @@ import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import type * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as FindMyWay from "effect/http/FindMyWay";
+import * as HttpApi from "effect/http-api/HttpApi";
+import type * as HttpApiGroup from "effect/http-api/HttpApiGroup";
 import type * as Etag from "effect/http/Etag";
 import type * as HttpPlatform from "effect/http/HttpPlatform";
 import * as HttpRouter from "effect/http/HttpRouter";
@@ -103,8 +106,11 @@ export type Routes<Services_ = Services> = Layer.Layer<
  * exact paths first and longer path prefixes before the catch-all, so they take
  * precedence.
  */
-export const make = (routes: Routes): ConvexHttpRouter =>
-  makeWithLayer(routes, RegisteredFunction.baseActionLayer);
+export const make = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  routes: Routes,
+  options?: { readonly api?: HttpApi.HttpApi<Id, Groups> | undefined },
+): ConvexHttpRouter =>
+  makeWithLayer(routes, RegisteredFunction.baseActionLayer, options?.api);
 
 /**
  * Derive HTTP capabilities and ID scopes from the generated database schema.
@@ -127,6 +133,7 @@ export const forSchema =
         Match.exhaustive,
       ),
       (ctx) => RegisteredFunction.actionLayer(schema, ctx),
+      undefined,
     );
 
 // Convex uses a component-relative path to select its HTTP action but passes
@@ -145,9 +152,15 @@ const componentRouter = Layer.effect(
   }).pipe(Effect.orDie),
 );
 
-const makeWithLayer = <Services_, DataModel_ extends GenericDataModel>(
+const makeWithLayer = <
+  Services_,
+  DataModel_ extends GenericDataModel,
+  Id extends string = string,
+  Groups extends HttpApiGroup.Constraint = never,
+>(
   routes: Routes<Services_>,
   layer: (ctx: GenericActionCtx<DataModel_>) => Layer.Layer<Services_>,
+  api: HttpApi.HttpApi<Id, Groups> | undefined,
 ): ConvexHttpRouter => {
   applyMonkeyPatches();
 
@@ -194,6 +207,51 @@ const makeWithLayer = <Services_, DataModel_ extends GenericDataModel>(
     };
     convexHttpRouter.route(routeSpec);
   });
+
+  if (api !== undefined) {
+    const matcher = FindMyWay.make<string>();
+    const reflected: ReturnType<ConvexHttpRouter["getRoutes"]> = [];
+    HttpApi.reflect(api, {
+      onGroup: () => {},
+      onEndpoint: ({ endpoint }) => {
+        const method = ROUTABLE_HTTP_METHODS.find(
+          (candidate) => candidate === endpoint.method,
+        );
+        if (method === undefined) return;
+        matcher.on(method, endpoint.path as FindMyWay.PathInput, endpoint.path);
+        // Effect also matches a wildcard route's base path without its slash.
+        if (endpoint.path.endsWith("/*")) {
+          matcher.on(
+            method,
+            endpoint.path.slice(0, -2) as `/${string}`,
+            endpoint.path,
+          );
+        }
+        reflected.push([endpoint.path, method, httpAction]);
+      },
+    });
+    reflected.sort(
+      ([pathA, methodA], [pathB, methodB]) =>
+        pathA.localeCompare(pathB) || methodA.localeCompare(methodB),
+    );
+
+    const getRoutes = convexHttpRouter.getRoutes;
+    convexHttpRouter.getRoutes = () => [
+      ...getRoutes().filter(([, , action]) => action !== httpAction),
+      ...reflected,
+    ];
+    const lookup = convexHttpRouter.lookup;
+    convexHttpRouter.lookup = (path, method) => {
+      const match = lookup(path, method);
+      if (match === null || match[0] !== httpAction) return match;
+      const normalized = match[1];
+      return [
+        httpAction,
+        normalized,
+        matcher.find(normalized, path)?.handler ?? path,
+      ];
+    };
+  }
 
   return convexHttpRouter;
 };

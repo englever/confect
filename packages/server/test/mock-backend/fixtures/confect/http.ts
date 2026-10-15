@@ -74,6 +74,7 @@ const http = ConfectHttpRouter.make(
     ),
     HttpRouter.middleware(withTestHeader, { global: true }),
   ),
+  { api: NotesApi },
 );
 
 // A plain Convex route on the same router: Convex matches exact paths before
