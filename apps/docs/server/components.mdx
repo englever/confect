@@ -158,6 +158,8 @@ Keep using `FunctionImpl.make(databaseSchema, group, name, handler)` with the ge
 - Generated raw contexts preserve scoped ID types and omit `auth`.
 - Application `Auth` is unavailable. Pass the identity information your component needs explicitly in function arguments.
 
+The component `Scheduler` interface supports `runAfter` and `runAt`. It does not yet expose `cancel`.
+
 Convex rejects `"use node"` inside components. Keep Node actions in the host application.
 
 Component codegen rejects `confect/auth.ts`. Configuration reads still use Convex's environment provider; declare component environment variables through the native component configuration API.
