@@ -32,8 +32,6 @@ import {
  */
 const GENERATOR_FORMAT = "1";
 
-export const DECLARATION_FILES = ["env.ts", "app.ts", "auth.ts", "http.ts"];
-
 const confectPath = Effect.fnUntraced(function* (file: string) {
   const path = yield* Path.Path;
   return path.join(yield* ConfectDirectory.get, file);

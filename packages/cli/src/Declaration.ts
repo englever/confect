@@ -236,10 +236,6 @@ const parseProviders = (
   );
 };
 
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
 const quote = (value: string): string => JSON.stringify(value);
 
 export const header = (source: string): string =>
