@@ -102,6 +102,11 @@ export type Routes<Services_ = Services> = Layer.Layer<
  * for paths: place an API with `HttpApi.prefix` or absolute route paths.
  * Requests that match no route receive the Effect router's 404 response.
  *
+ * Supply `{ api }` with the `HttpApi` registered by the routes layer to show
+ * endpoint patterns in Convex completion logs and the dashboard. Plain Effect
+ * routes and unmatched requests use their concrete path as the completion
+ * label. Without the option, Convex reports the catch-all registrations.
+ *
  * Plain Convex routes can still be added to the returned router—Convex matches
  * exact paths first and longer path prefixes before the catch-all, so they take
  * precedence.
@@ -115,6 +120,7 @@ export const make = <Id extends string, Groups extends HttpApiGroup.Constraint>(
 /**
  * Derive HTTP capabilities and ID scopes from the generated database schema.
  * Component routes are relative to their installation's HTTP mount prefix.
+ * Supply `{ api }` as in {@link make}; labels stay component-relative.
  */
 export const forSchema =
   <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
@@ -160,8 +166,8 @@ const componentRouter = Layer.effect(
 const makeWithLayer = <
   Services_,
   DataModel_ extends GenericDataModel,
-  Id extends string = string,
-  Groups extends HttpApiGroup.Constraint = never,
+  Id extends string,
+  Groups extends HttpApiGroup.Constraint,
 >(
   routes: Routes<Services_>,
   layer: (ctx: GenericActionCtx<DataModel_>) => Layer.Layer<Services_>,
