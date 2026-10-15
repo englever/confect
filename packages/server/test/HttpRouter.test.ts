@@ -50,8 +50,12 @@ describe("HttpRouter", () => {
     ]);
   });
 
-  it("labels matching requests and leaves unmatched requests concrete", () => {
+  it("labels matching requests and keeps the catch-all for unmatched requests", () => {
     const router = ConfectHttpRouter.make(routes, { api });
+    expect(matchLabel(ConfectHttpRouter.make(routes), "/nope")).toEqual([
+      "GET",
+      "/*",
+    ]);
     expect([
       matchLabel(router, "/users/42"),
       matchLabel(router, "/users", "POST"),
@@ -62,8 +66,8 @@ describe("HttpRouter", () => {
       ["GET", "/users/:id"],
       ["POST", "/users"],
       ["GET", "/users/:id"],
-      ["GET", "/nope"],
-      ["POST", "/users/42"],
+      ["GET", "/*"],
+      ["POST", "/*"],
     ]);
   });
 
@@ -95,7 +99,7 @@ describe("HttpRouter", () => {
     ]);
   });
 
-  it("retains concrete labels for plain Effect routes beside an API", () => {
+  it("keeps catch-all labels for plain Effect routes beside an API", () => {
     const router = ConfectHttpRouter.make(
       Layer.mergeAll(
         routes,
@@ -103,7 +107,7 @@ describe("HttpRouter", () => {
       ),
       { api },
     );
-    expect(matchLabel(router, "/health")).toEqual(["GET", "/health"]);
+    expect(matchLabel(router, "/health")).toEqual(["GET", "/*"]);
     expect(matchLabel(router, "/users/7")).toEqual(["GET", "/users/:id"]);
   });
 });
@@ -122,7 +126,34 @@ it("labels component routes relative to the component, with the same reflected A
     ["GET", "/users/:id"],
   ]);
   expect(matchLabel(router, "/users/42")).toEqual(["GET", "/users/:id"]);
-  expect(matchLabel(router, "/nope")).toEqual(["GET", "/nope"]);
+  expect(matchLabel(router, "/nope")).toEqual(["GET", "/*"]);
+});
+
+it("keeps unmatched component labels relative to a prefixed API", () => {
+  const schema = DatabaseSchema.make(
+    {},
+    { kind: "component", scope: IdScope.component("users") },
+  );
+  const prefixedApi = api.prefix("/v1");
+  const prefixedRoutes = HttpApiBuilder.layer(prefixedApi).pipe(
+    Layer.provide(
+      HttpApiBuilder.group(prefixedApi, "users", (handlers) =>
+        handlers
+          .handle("get", ({ params }) => Effect.succeed(params.id))
+          .handle("create", () => Effect.succeed("created")),
+      ),
+    ),
+  );
+  const router = ConfectHttpRouter.forSchema(schema)(prefixedRoutes, {
+    api: prefixedApi,
+  });
+  expect(matchLabel(router, "/v1/users/42")).toEqual(["GET", "/v1/users/:id"]);
+  expect(router.lookup("/nope", "GET")?.slice(1)).toEqual(["GET", "/*"]);
+  expect(
+    ConfectHttpRouter.forSchema(schema)(prefixedRoutes)
+      .lookup("/nope", "GET")
+      ?.slice(1),
+  ).toEqual(["GET", "/*"]);
 });
 
 it("labels prefixed wildcard routes at their base path and descendants", () => {
@@ -151,7 +182,7 @@ it("labels prefixed wildcard routes at their base path and descendants", () => {
     ["GET", "/v1/assets/*"],
     ["GET", "/v1/assets/*"],
     ["GET", "/v1/assets/*"],
-    ["GET", "/v1/elsewhere"],
+    ["GET", "/*"],
   ]);
 });
 
@@ -189,7 +220,7 @@ it("distinguishes declared parameters from literal colons in API paths", () => {
     ["POST", "/items/:id:cancel"],
     ["POST", "/items/:id:archive"],
     ["POST", "/literal/:status"],
-    ["POST", "/literal/ready"],
+    ["POST", "/*"],
   ]);
 });
 
@@ -213,5 +244,5 @@ it("keeps a component mountable when its label API has no routable endpoints", (
     ["POST", "/*"],
     ["PUT", "/*"],
   ]);
-  expect(matchLabel(router, "/health")).toEqual(["GET", "/health"]);
+  expect(matchLabel(router, "/health")).toEqual(["GET", "/*"]);
 });

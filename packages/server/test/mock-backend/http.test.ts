@@ -184,7 +184,7 @@ describe("HttpRouter", () => {
         const missing = yield* c.fetch("/literal/ready", { method: "POST" });
         expect(fixtureHttp.lookup("/literal/ready", "POST")?.slice(1)).toEqual([
           "POST",
-          "/literal/ready",
+          "/*",
         ]);
         expect(missing.status).toBe(404);
         expect(yield* Effect.promise(() => missing.text())).toBe("");

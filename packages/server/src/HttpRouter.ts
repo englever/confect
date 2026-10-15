@@ -105,10 +105,10 @@ export type Routes<Services_ = Services> = Layer.Layer<
  *
  * Supply `{ api }` with the `HttpApi` registered by the routes layer to show
  * endpoint patterns in Convex completion logs and the dashboard. Requests that
- * match no reflected endpoint use their concrete path as the completion label.
- * Without the option, Convex reports the catch-all registrations. Application
- * endpoints must not overlap component HTTP mounts: Convex also uses dashboard
- * route entries to select between application and component routers.
+ * match no reflected endpoint keep the catch-all completion label. Without the
+ * option, Convex reports the catch-all registrations. Application endpoints
+ * must not overlap component HTTP mounts: Convex also uses dashboard route
+ * entries to select between application and component routers.
  *
  * Plain Convex routes can still be added to the returned router—Convex matches
  * exact paths first and longer path prefixes before the catch-all, so they take
@@ -262,11 +262,10 @@ const makeWithLayer = <
       const match = lookup(path, method);
       if (match === null || match[0] !== httpAction) return match;
       const normalized = match[1];
-      return [
-        httpAction,
-        normalized,
-        matcher.find(normalized, path)?.handler ?? path,
-      ];
+      const reflectedPath = matcher.find(normalized, path)?.handler;
+      return reflectedPath === undefined
+        ? match
+        : [httpAction, normalized, reflectedPath];
     };
   }
 
