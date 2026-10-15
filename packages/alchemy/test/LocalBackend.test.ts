@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -306,6 +307,62 @@ describe("LocalBackend", () => {
         fake.behaviour.silent = false;
         yield* run(boot(name, directory)).pipe(Scope.provide(session));
         expect(fake.served).toHaveLength(2);
+        yield* Scope.close(session, Exit.void);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "finishes saving its identity before an interruption releases the data directory",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fake = fakeBackend();
+        const { directory, run } = yield* harness(fake);
+        const identity = path.join(directory, "identity.json");
+        const entered = yield* Deferred.make<void>();
+        const gate = Promise.withResolvers<void>();
+        const runDetached = Effect.runPromiseWith(
+          yield* Effect.context<never>(),
+        );
+        // Node cannot cancel a rename it has started: interrupting the effect
+        // abandons the callback while the rename still happens.
+        const slowRename = Layer.effect(
+          FileSystem.FileSystem,
+          Effect.map(FileSystem.FileSystem, (base) => ({
+            ...base,
+            rename: (from: string, to: string) =>
+              to === identity
+                ? Deferred.succeed(entered, undefined).pipe(
+                    Effect.andThen(
+                      Effect.callback<void>((resume) => {
+                        void gate.promise
+                          .then(() => runDetached(base.rename(from, to)))
+                          .then(() => resume(Effect.void));
+                      }),
+                    ),
+                  )
+                : base.rename(from, to),
+          })),
+        ).pipe(Layer.provide(NodeServices.layer));
+        const session = yield* Scope.make();
+        const starting = yield* run(boot(name, directory)).pipe(
+          Scope.provide(session),
+          Effect.provide(slowRename),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(entered);
+        const interrupting = yield* Fiber.interrupt(starting).pipe(
+          Effect.forkChild,
+        );
+        yield* Effect.sleep("50 millis");
+        expect(yield* fs.exists(path.join(directory, "owner.lock"))).toBe(true);
+        gate.resolve();
+        yield* Fiber.join(interrupting);
+        expect(yield* fs.exists(path.join(directory, "owner.lock"))).toBe(
+          false,
+        );
+        expect(yield* fs.exists(identity)).toBe(true);
         yield* Scope.close(session, Exit.void);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
