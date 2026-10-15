@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, layer } from "@effect/vitest";
-import * as Console from "effect/Console";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -69,7 +68,11 @@ layer(
         );
         const labels = completions.map(({ identifier }) => identifier);
         expect(labels).toEqual(["GET /users/:id", "GET /members/:id"]);
-        yield* Console.log({ httpCompletions: completions });
+        yield* Effect.sync(() => {
+          process.stdout.write(
+            `${JSON.stringify({ httpCompletions: completions })}\n`,
+          );
+        });
       }),
   );
 });
