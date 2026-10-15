@@ -294,7 +294,7 @@ The host function does not satisfy callback contract "email/onEvent": its args c
 
 This catches what the types cannot show, such as field names hidden behind a `Record` type. A mismatch is a wiring mistake, so most hosts let it fail the function with `Effect.orDie`. A plain Convex reference (`Ref.fromFunctionReference`) carries no codecs, so only the compile-time check applies to it.
 
-Validators do not capture everything a codec does. Tuples with the same elements in another order compile to the same validator, and so do `Schema.DateFromString` and `Schema.DurationFromString` (both `v.string()`). The compile-time check still compares tuples by position. Codecs that differ only in how they decode are not checked at all.
+Validators do not capture everything a codec checks. Tuples with the same elements in another order compile to the same validator, a refinement such as `Schema.NonEmptyString` compiles to plain `v.string()`, a recursive schema compiles to `v.any()`, and `Schema.DateFromString` and `Schema.DurationFromString` both compile to `v.string()`. The compile-time check still compares tuples by position. Codecs that differ only in refinements, recursive structure or how they decode pass both checks.
 
 A package that wraps its component in a client can accept the host's reference and create the handle itself. Forward the reference's type to keep the check at the caller:
 
