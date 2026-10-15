@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
 import {
   Component,
   FunctionSpec,
@@ -326,6 +326,96 @@ describe("published component contracts", () => {
     ).toBe(id);
     // @ts-expect-error Only declared component table names are accepted.
     Component.id(first, "missing");
+  });
+
+  it("keeps rebound Struct fields available for host schemas", () => {
+    const exported = Schema.Struct({
+      id: ItemId,
+      label: Schema.String,
+      nested: Schema.Struct({ id: ItemId }),
+      optional: Schema.optionalKey(ItemId),
+    }).check(Schema.makeFilter((value) => value.label.length > 0));
+    const rebound = Component.schema(first, exported);
+    const host = Schema.Struct({ id: rebound.fields.id });
+    const decoded = Schema.decodeUnknownSync(rebound)({
+      id: "one",
+      label: "label",
+      nested: { id: "two" },
+    });
+    const id: Ref.Args<typeof first.items.get>["id"] = decoded.id;
+    expect(Schema.encodeSync(host)({ id })).toEqual({ id: "one" });
+    expect(GenericId.scope(rebound.fields.id.ast)).toBe(
+      GenericId.scope(Component.id(first, "items").ast),
+    );
+    expect(GenericId.scope(rebound.fields.nested.fields.id.ast)).toBe(
+      GenericId.scope(Component.id(first, "items").ast),
+    );
+    expect(
+      Schema.is(rebound)({ id: "one", label: "", nested: { id: "two" } }),
+    ).toBe(false);
+    expect(GenericId.scope(exported.fields.id.ast)).toBe(scope);
+    expectTypeOf(decoded.optional).toEqualTypeOf<typeof id | undefined>();
+    // @ts-expect-error Rebound fields do not accept the component definition's IDs.
+    const original: typeof ItemId.Type = decoded.id;
+    void original;
+  });
+
+  it("leaves id-free nominal classes and their methods intact", () => {
+    class Label extends Schema.Class<Label>("Label")({ value: Schema.String }) {
+      private readonly marker = "label";
+      text() {
+        return `${this.marker}:${this.value}`;
+      }
+    }
+    const rebound = Component.schema(first, Label);
+    const value: Label = Schema.decodeSync(rebound)({ value: "ready" });
+    expect(value.text()).toBe("label:ready");
+    expect(rebound.fields.value).toBe(Schema.String);
+    expect(rebound).toBe(Label);
+    expectTypeOf<typeof rebound.Type>().toExtend<Label>();
+    const nested = Component.schema(first, Schema.Struct({ label: Label }));
+    const nestedValue: Label = Schema.decodeSync(nested)({
+      label: { value: "nested" },
+    }).label;
+    expect(nestedValue.text()).toBe("label:nested");
+  });
+
+  it("keeps id-free suspended class values nominal without forcing their fields", () => {
+    const thunk = vi.fn(() => Schema.String);
+    class Label extends Schema.Class<Label>("SuspendedLabel")({
+      value: Schema.suspend(thunk),
+    }) {
+      private readonly marker = "lazy";
+      text() {
+        return `${this.marker}:${this.value}`;
+      }
+    }
+    const rebound = Component.schema(first, Label);
+    expect(thunk).not.toHaveBeenCalled();
+    const value: Label = Schema.decodeSync(rebound)({ value: "ready" });
+    expect(value.text()).toBe("lazy:ready");
+    expect(Schema.decodeSync(rebound.fields.value)("field")).toBe("field");
+    // @ts-expect-error Rebinding does not promise schema constructors or statics.
+    const constructor: typeof Label = rebound;
+    void constructor;
+  });
+
+  it("rebases ID-bearing classes without claiming nominal identity", () => {
+    class Item extends Schema.Class<Item>("Item")({ id: ItemId }) {
+      private readonly marker = "item";
+      label() {
+        return this.marker;
+      }
+    }
+    const rebound = Component.schema(first, Item);
+    const value = Schema.decodeUnknownSync(rebound)({ id: "one" });
+    const id: Ref.Args<typeof first.items.get>["id"] = value.id;
+    expect(Ref.encodeArgsSync(first.items.get, { id })).toEqual({ id: "one" });
+    // @ts-expect-error Moving IDs to another scope does not preserve class identity.
+    const nominal: Item = value;
+    // @ts-expect-error Rebound IDs cannot be used in the definition scope.
+    const definitionId: typeof ItemId.Type = value.id;
+    void [nominal, definitionId];
   });
 
   it("omits empty and internal-only groups while keeping nested public exports", () => {
