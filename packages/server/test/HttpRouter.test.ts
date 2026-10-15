@@ -1,3 +1,5 @@
+import * as IdScope from "@confect/core/IdScope";
+import * as DatabaseSchema from "@confect/server/DatabaseSchema";
 import * as ConfectHttpRouter from "@confect/server/HttpRouter";
 import { describe, expect, it } from "@effect/vitest";
 import { httpActionGeneric } from "convex/server";
@@ -104,4 +106,21 @@ describe("HttpRouter", () => {
     expect(matchLabel(router, "/health")).toEqual(["GET", "/health"]);
     expect(matchLabel(router, "/users/7")).toEqual(["GET", "/users/:id"]);
   });
+});
+
+it("labels component routes relative to the component, with the same reflected API", () => {
+  const schema = DatabaseSchema.make(
+    {},
+    {
+      kind: "component",
+      scope: IdScope.component("users"),
+    },
+  );
+  const router = ConfectHttpRouter.forSchema(schema)(routes, { api });
+  expect(labels(router)).toEqual([
+    ["POST", "/users"],
+    ["GET", "/users/:id"],
+  ]);
+  expect(matchLabel(router, "/users/42")).toEqual(["GET", "/users/:id"]);
+  expect(matchLabel(router, "/nope")).toEqual(["GET", "/nope"]);
 });
