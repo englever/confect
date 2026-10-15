@@ -1,6 +1,11 @@
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as FileSystem from "effect/FileSystem";
 import * as Result from "effect/Result";
 import {
@@ -8,6 +13,7 @@ import {
   PackageManifest,
   packageBaseVersion,
   renameForGithubPackages,
+  readVersions,
 } from "./renameForGithubPackages";
 import * as Schema from "effect/Schema";
 import { publishedPackages } from "./checkPackContents";
@@ -196,3 +202,110 @@ test("rejects an unused override below the highest existing number", () => {
     highestBuild: 10,
   });
 });
+
+const pnpmMissingLatest = {
+  stdout:
+    '{\n  "error": {\n    "code": "ERR_PNPM_PACKAGE_NOT_FOUND",\n    "message": "No matching version found for @englever/confect-server@latest"\n  }\n}\n',
+  stderr: "",
+};
+
+const registryVersions = (body: string, status = 200) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    return yield* readVersions("@englever/confect-server", ".").pipe(
+      Effect.provideService(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() =>
+          spawner.spawn(
+            ChildProcess.make("bun", [
+              "-e",
+              `process.stdout.write(${JSON.stringify(pnpmMissingLatest.stdout)}); process.stderr.write(${JSON.stringify(pnpmMissingLatest.stderr)}); process.exit(1);`,
+            ]),
+          ),
+        ),
+      ),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          expect(request.url).toBe(
+            "https://npm.pkg.github.com/@englever%2Fconfect-server",
+          );
+          expect(request.headers.authorization).toBe("Bearer local-test-token");
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(request, new Response(body, { status })),
+          );
+        }),
+      ),
+    );
+  }).pipe(
+    Effect.provide([
+      ConfigProvider.layer(
+        ConfigProvider.fromUnknown({ NODE_AUTH_TOKEN: "local-test-token" }),
+      ),
+      BunServices.layer,
+    ]),
+  );
+
+test.each([{ englever: "10.2.0-englever.1" }, {}])(
+  "reads every published version without a latest tag %j",
+  (tags) =>
+    Effect.runPromise(
+      registryVersions(
+        JSON.stringify({
+          "dist-tags": tags,
+          versions: {
+            "10.2.0-englever.1": {},
+            "10.2.0-englever.4": {},
+            "10.1.0-englever.99": {},
+          },
+        }),
+      ).pipe(
+        Effect.map((versions) => {
+          expect(versions).toEqual([
+            "10.2.0-englever.1",
+            "10.2.0-englever.4",
+            "10.1.0-englever.99",
+          ]);
+          expect(
+            Result.getOrThrow(chooseBuildVersion("10.2.0", versions)),
+          ).toBe("10.2.0-englever.5");
+        }),
+      ),
+    ),
+);
+
+test("treats only an absent package as having no published versions", () =>
+  Effect.runPromise(
+    registryVersions('{"error":"not found"}', 404).pipe(
+      Effect.map((versions) => expect(versions).toEqual([])),
+    ),
+  ));
+
+for (const status of [401, 403, 500]) {
+  test(`fails on registry status ${status}`, () =>
+    Effect.runPromise(
+      registryVersions('{"error":"registry failure"}', status).pipe(
+        Effect.flip,
+        Effect.map((error) =>
+          expect(error).toMatchObject({
+            _tag: "HttpClientError",
+            reason: { _tag: "StatusCodeError", response: { status } },
+          }),
+        ),
+      ),
+    ));
+}
+
+for (const [body, expected] of [
+  ["{", { _tag: "HttpClientError", reason: { _tag: "DecodeError" } }],
+  ["{}", { _tag: "SchemaError" }],
+  ['{"versions":[]}', { _tag: "SchemaError" }],
+] as const) {
+  test(`rejects malformed registry metadata ${body}`, () =>
+    Effect.runPromise(
+      registryVersions(body).pipe(
+        Effect.flip,
+        Effect.map((error) => expect(error).toMatchObject(expected)),
+      ),
+    ));
+}

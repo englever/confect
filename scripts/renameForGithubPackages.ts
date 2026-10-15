@@ -195,7 +195,7 @@ const run = Effect.fn("GithubPackages.command")(function* (
   return output.stdout;
 }, Effect.scoped);
 
-const readVersions = Effect.fn("GithubPackages.versions")(function* (
+export const readVersions = Effect.fn("GithubPackages.versions")(function* (
   name: string,
   root: string,
 ) {
