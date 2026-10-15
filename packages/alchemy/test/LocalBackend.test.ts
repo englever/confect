@@ -138,6 +138,37 @@ describe("LocalBackend", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.live("saves both ports together once the backend has started", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fake = fakeBackend();
+      const { directory, run } = yield* harness(fake);
+      const identity = path.join(directory, "identity.json");
+      yield* fs.makeDirectory(directory, { recursive: true });
+      yield* fs.writeFileString(
+        identity,
+        serialize({
+          name,
+          version: backendVersion,
+          instanceSecret: "00ff",
+          adminKey: `${name}|0a1b2c`,
+          port: 3355,
+        }),
+      );
+      const backend = yield* run(boot(name, directory));
+      const saved = yield* Schema.decodeEffect(
+        Schema.fromJsonString(
+          Schema.Struct({ ports: Schema.optionalKey(Schema.Unknown) }),
+        ),
+      )(yield* fs.readFileString(identity));
+      expect(saved.ports).toEqual({
+        port: port(backend.url),
+        sitePort: port(backend.siteUrl),
+      });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.live("keeps running the release that created its data directory", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -280,7 +311,7 @@ describe("LocalBackend", () => {
         Scope.provide(session),
       );
       yield* fake.served[0].exit(1);
-      yield* first.exited;
+      yield* first.exited.pipe(Effect.timeout("1 second"));
       const restarted = yield* run(boot(name, directory)).pipe(
         Scope.provide(session),
       );
@@ -318,7 +349,7 @@ describe("LocalBackend", () => {
           Scope.provide(session),
           Effect.forkChild,
         );
-        while (fake.served.length === 0) yield* Effect.sleep("10 millis");
+        yield* Deferred.await(fake.spawned);
         yield* Fiber.interrupt(starting);
         expect(fake.served[0].running()).toBe(false);
         fake.behaviour.silent = false;

@@ -54,6 +54,7 @@ export const fakeBackend = (options?: Partial<FakeBehaviour>) => {
     silent: options?.silent ?? false,
   };
   const served: ServedBackend[] = [];
+  const spawned = Deferred.makeUnsafe<void>();
   const attempts: Array<ReadonlyArray<string>> = [];
   const pushes: string[] = [];
   const downloads: string[] = [];
@@ -126,6 +127,7 @@ export const fakeBackend = (options?: Partial<FakeBehaviour>) => {
                 ),
               ),
             );
+            yield* Deferred.succeed(spawned, undefined);
           }
           return ChildProcessSpawner.makeHandle({
             pid: ChildProcessSpawner.ProcessId(1000 + served.length),
@@ -177,6 +179,10 @@ export const fakeBackend = (options?: Partial<FakeBehaviour>) => {
     behaviour,
     attempts,
     served,
+    /**
+     * Completes when the first backend is served.
+     */
+    spawned,
     pushes,
     downloads,
     answers,
