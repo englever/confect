@@ -192,3 +192,26 @@ it("distinguishes declared parameters from literal colons in API paths", () => {
     ["POST", "/literal/ready"],
   ]);
 });
+
+it("keeps a component mountable when its label API has no routable endpoints", () => {
+  const schema = DatabaseSchema.make(
+    {},
+    {
+      kind: "component",
+      scope: IdScope.component("health"),
+    },
+  );
+  const router = ConfectHttpRouter.forSchema(schema)(
+    HttpRouter.add("GET", "/health", HttpServerResponse.text("ok")),
+    { api: HttpApi.make("empty") },
+  );
+  expect(labels(router)).toEqual([
+    ["DELETE", "/*"],
+    ["GET", "/*"],
+    ["OPTIONS", "/*"],
+    ["PATCH", "/*"],
+    ["POST", "/*"],
+    ["PUT", "/*"],
+  ]);
+  expect(matchLabel(router, "/health")).toEqual(["GET", "/health"]);
+});
