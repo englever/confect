@@ -245,8 +245,7 @@ describe("create checks the host's validators", () => {
   it.effect("refuses a rebuilt error schema Convex cannot compile", () =>
     Effect.gen(function* () {
       const reasoned = () =>
-        Schema.Struct({
-          _tag: Schema.Literal("Reasoned"),
+        Schema.TaggedStruct("Reasoned", {
           reason: Schema.TemplateLiteral(["reason-", Schema.String]),
         });
       const Reasoning = CoreCallback.mutation("counter/onReasoning", {
@@ -332,8 +331,7 @@ describe("create checks the host's validators", () => {
         class Rebuilt extends Schema.TaggedError<Rebuilt>()("EventRejected", {
           reason: Schema.String,
         }) {}
-        const Reasoned = Schema.Struct({
-          _tag: Schema.Literal("Reasoned"),
+        const Reasoned = Schema.TaggedStruct("Reasoned", {
           reason: Schema.TemplateLiteral(["reason-", Schema.String]),
         });
         const Reasoning = CoreCallback.mutation("counter/onReasoning", {

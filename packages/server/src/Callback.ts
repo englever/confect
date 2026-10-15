@@ -3,6 +3,7 @@ import * as MiddlewareSpec from "@confect/core/MiddlewareSpec";
 import * as Ref from "@confect/core/Ref";
 import {
   compileArgsSchema,
+  compileAst,
   compileReturnsSchema,
 } from "@confect/core/SchemaToValidator";
 import { createFunctionHandle } from "convex/server";
@@ -11,8 +12,10 @@ import * as Array from "effect/Array";
 import * as Effect from "effect/Effect";
 import { pipe } from "effect/Function";
 import * as Order from "effect/Order";
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 
 /**
  * The host function's compiled validators differ from the contract's on one
@@ -40,22 +43,58 @@ const alternatives = (
     ? validator.members.flatMap(alternatives)
     : [validator];
 
+const literalKinds: Record<string, string> = {
+  string: "string",
+  number: "float64",
+  bigint: "int64",
+  boolean: "boolean",
+};
+
+/**
+ * The alternatives `validators` accept, without those another alternative
+ * already covers: everything under `v.any()`, and a literal under its base
+ * kind. `true` and `false` together are `v.boolean()`.
+ */
+const alternativesOf = (
+  validators: ReadonlyArray<GenericValidator>,
+): ReadonlyArray<GenericValidator> => {
+  const flat = validators.flatMap(alternatives);
+  if (flat.some(({ kind }) => kind === "any")) {
+    return [v.any()];
+  }
+  const booleans = new Set(
+    flat.flatMap((validator) =>
+      validator.kind === "literal" && typeof validator.value === "boolean"
+        ? [validator.value]
+        : [],
+    ),
+  );
+  const widened =
+    booleans.has(true) && booleans.has(false) ? [...flat, v.boolean()] : flat;
+  const kinds = new Set<string>(widened.map(({ kind }) => kind));
+  return widened.filter(
+    (validator) =>
+      validator.kind !== "literal" ||
+      !kinds.has(literalKinds[typeof validator.value] ?? ""),
+  );
+};
+
+const keyed = (
+  described: ReadonlyArray<Schema.Json>,
+): ReadonlyArray<readonly [string, Schema.Json]> =>
+  pipe(
+    described,
+    Array.map((json) => [JSON.stringify(json), json] as const),
+    Array.dedupeWith(([a], [b]) => a === b),
+    Array.sortWith(([key]) => key, Order.String),
+  );
+
 /**
  * The distinct alternatives `validators` accept, keyed by their description and
  * sorted by it, so union order and repetition do not count as differences.
  */
-const membersOf = (
-  validators: ReadonlyArray<GenericValidator>,
-): ReadonlyArray<readonly [string, Schema.Json]> =>
-  pipe(
-    validators.flatMap(alternatives),
-    Array.map((validator) => {
-      const described = describe(validator);
-      return [JSON.stringify(described), described] as const;
-    }),
-    Array.dedupeWith(([a], [b]) => a === b),
-    Array.sortWith(([key]) => key, Order.String),
-  );
+const membersOf = (validators: ReadonlyArray<GenericValidator>) =>
+  keyed(alternativesOf(validators).map(describe));
 
 const unionOf = (
   members: ReadonlyArray<readonly [string, Schema.Json]>,
@@ -110,12 +149,47 @@ const ownError = (provenance: {
     ? [provenance.error]
     : [];
 
+const errorAlternatives = (schema: Schema.Top): ReadonlyArray<Schema.Top> =>
+  SchemaAST.isUnion(schema.ast) &&
+  Predicate.hasProperty(schema, "members") &&
+  Array.isArray(schema.members)
+    ? schema.members.flatMap((member) =>
+        Schema.isSchema(member) ? errorAlternatives(member) : [],
+      )
+    : [schema];
+
+/**
+ * Error schemas are never compiled when a function is registered, since Convex
+ * does not validate errors, so they may hold shapes no validator describes.
+ * Those compile to a failure here.
+ */
+const compileErrors = (schemas: ReadonlyArray<Schema.Top>) =>
+  schemas.map((schema) =>
+    Effect.runSync(Effect.result(compileAst(Schema.toEncoded(schema).ast))),
+  );
+
+const describeErrors = (
+  compiled: ReturnType<typeof compileErrors>,
+): Schema.Json =>
+  unionOf(
+    keyed([
+      ...membersOf(Array.getSuccesses(compiled)).map(([, json]) => json),
+      ...Array.getFailures(compiled).map((error) => ({
+        kind: "unsupported",
+        reason: error.message,
+      })),
+    ]),
+  );
+
 /**
  * Compare the validators Convex would compile for the contract and for the host
  * function, both in the application's ID scope, so a component's IDs are
- * strings on both sides and the host's own IDs stay `v.id`. Args and returns
- * must be equal. Every error the host may fail with, its middleware's included,
- * must be one the contract declares.
+ * strings on both sides and the host's own IDs stay `v.id`. A host that is
+ * itself a component registers its own IDs as `v.id` in its scope, which this
+ * check cannot see and compares as strings. Args and returns must be equal.
+ * Every error the host may fail with, its middleware's included, must be one
+ * the contract declares: the same schema, or one compiling to the same
+ * validator.
  */
 const verify = (
   contract: Callback.Any,
@@ -148,17 +222,31 @@ const verify = (
     return mismatch("returns", expectedReturns, actualReturns);
   }
 
-  const expectedErrors = membersOf(
-    ownError(provenance).map((schema) => compileReturnsSchema(schema)),
-  );
-  const actualErrors = membersOf(
-    [...ownError(ref), ...MiddlewareSpec.errorSchemas(ref.middlewareSpecs)].map(
-      (schema) => compileReturnsSchema(schema),
-    ),
-  );
-  const declared = new Set(expectedErrors.map(([key]) => key));
-  if (!actualErrors.every(([key]) => declared.has(key))) {
-    return mismatch("error", unionOf(expectedErrors), unionOf(actualErrors));
+  const declared = ownError(provenance).flatMap(errorAlternatives);
+  const undeclared = [
+    ...ownError(ref),
+    ...MiddlewareSpec.errorSchemas(ref.middlewareSpecs),
+  ]
+    .flatMap(errorAlternatives)
+    .filter((schema) => !declared.includes(schema));
+  if (undeclared.length > 0) {
+    const expectedErrors = compileErrors(declared);
+    const actualErrors = compileErrors(undeclared);
+    const keys = new Set(
+      membersOf(Array.getSuccesses(expectedErrors)).map(([key]) => key),
+    );
+    if (
+      Array.getFailures(actualErrors).length > 0 ||
+      !membersOf(Array.getSuccesses(actualErrors)).every(([key]) =>
+        keys.has(key),
+      )
+    ) {
+      return mismatch(
+        "error",
+        describeErrors(expectedErrors),
+        describeErrors(actualErrors),
+      );
+    }
   }
 
   return Result.void;
