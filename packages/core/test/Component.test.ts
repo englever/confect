@@ -379,7 +379,7 @@ describe("published component contracts", () => {
     ).toMatchObject({
       _tag: "Failure",
       failure: {
-        _tag: "ComponentNameCollision",
+        _tag: "ComponentNameCollisionError",
         groupPath: "nested",
         functionName: "conflict",
       },
@@ -418,7 +418,10 @@ describe("published component contracts", () => {
       Result.try(() => Component.make(spec, IdScope.app, ["items"])),
     ).toMatchObject({
       _tag: "Failure",
-      failure: { _tag: "EmptyComponentScope", definitionScope: IdScope.app },
+      failure: {
+        _tag: "EmptyComponentScopeError",
+        definitionScope: IdScope.app,
+      },
     });
   });
 
@@ -430,7 +433,7 @@ describe("published component contracts", () => {
       {
         _tag: "Failure",
         failure: {
-          _tag: "UninstalledComponentReference",
+          _tag: "UninstalledComponentReferenceError",
           definitionScope: scope,
         },
       },

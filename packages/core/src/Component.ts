@@ -19,8 +19,8 @@ import type * as Refs from "./Refs";
 import type * as RuntimeAndFunctionType from "./RuntimeAndFunctionType";
 import * as Spec from "./Spec";
 
-export class EmptyComponentScope extends Data.TaggedError(
-  "EmptyComponentScope",
+export class EmptyComponentScopeError extends Data.TaggedError(
+  "EmptyComponentScopeError",
 )<{
   readonly definitionScope: IdScope.IdScope;
 }> {
@@ -29,8 +29,8 @@ export class EmptyComponentScope extends Data.TaggedError(
   }
 }
 
-export class ComponentNameCollision extends Data.TaggedError(
-  "ComponentNameCollision",
+export class ComponentNameCollisionError extends Data.TaggedError(
+  "ComponentNameCollisionError",
 )<{
   readonly groupPath: string;
   readonly functionName: string;
@@ -40,8 +40,8 @@ export class ComponentNameCollision extends Data.TaggedError(
   }
 }
 
-export class UninstalledComponentReference extends Data.TaggedError(
-  "UninstalledComponentReference",
+export class UninstalledComponentReferenceError extends Data.TaggedError(
+  "UninstalledComponentReferenceError",
 )<{
   readonly definitionScope: IdScope.IdScope;
 }> {
@@ -53,13 +53,13 @@ export class UninstalledComponentReference extends Data.TaggedError(
 const validateNames = (
   groups: Readonly<Record<string, GroupSpec.AnyWithProps>>,
   prefix = "",
-): Result.Result<void, ComponentNameCollision> => {
+): Result.Result<void, ComponentNameCollisionError> => {
   for (const [name, group] of Record.toEntries(groups)) {
     const path = prefix === "" ? name : `${prefix}/${name}`;
     for (const functionSpec of Record.values(group.functions)) {
       if (Record.has(group.groups, functionSpec.name)) {
         return Result.fail(
-          new ComponentNameCollision({
+          new ComponentNameCollisionError({
             groupPath: path,
             functionName: functionSpec.name,
           }),
@@ -75,9 +75,12 @@ const validateNames = (
 const validateContract = (
   scope: IdScope.IdScope,
   groups: Readonly<Record<string, GroupSpec.AnyWithProps>>,
-): Result.Result<void, EmptyComponentScope | ComponentNameCollision> =>
+): Result.Result<
+  void,
+  EmptyComponentScopeError | ComponentNameCollisionError
+> =>
   scope === ""
-    ? Result.fail(new EmptyComponentScope({ definitionScope: scope }))
+    ? Result.fail(new EmptyComponentScopeError({ definitionScope: scope }))
     : validateNames(groups);
 
 const TypeId = "~@confect/core/Component";
@@ -278,7 +281,9 @@ export const bind = <
     Result.fromNullishOr(
       address.reference,
       () =>
-        new UninstalledComponentReference({ definitionScope: contract.scope }),
+        new UninstalledComponentReferenceError({
+          definitionScope: contract.scope,
+        }),
     ),
   );
   // Preserve the opaque address as an identity only. Calls retain the native

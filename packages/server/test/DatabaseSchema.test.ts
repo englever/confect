@@ -75,7 +75,7 @@ describe("DatabaseSchema", () => {
       ),
     ).toMatchObject({
       _tag: "Failure",
-      failure: { _tag: "EmptyDatabaseScope", databaseScope: IdScope.app },
+      failure: { _tag: "EmptyDatabaseScopeError", databaseScope: IdScope.app },
     });
   });
 
@@ -89,7 +89,7 @@ describe("DatabaseSchema", () => {
     ).toMatchObject({
       _tag: "Failure",
       failure: {
-        _tag: "TableBindingMismatch",
+        _tag: "TableBindingMismatchError",
         bindingName: "other",
         tableName: "notes",
         tableScope: IdScope.app,
@@ -106,7 +106,7 @@ describe("DatabaseSchema", () => {
     ).toMatchObject({
       _tag: "Failure",
       failure: {
-        _tag: "TableBindingMismatch",
+        _tag: "TableBindingMismatchError",
         bindingName: "notes",
         tableName: "notes",
         tableScope: IdScope.app,

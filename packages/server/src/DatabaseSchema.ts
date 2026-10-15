@@ -5,7 +5,9 @@ import * as Predicate from "effect/Predicate";
 import * as Record from "effect/Record";
 import type * as Table from "./Table";
 
-export class EmptyDatabaseScope extends Data.TaggedError("EmptyDatabaseScope")<{
+export class EmptyDatabaseScopeError extends Data.TaggedError(
+  "EmptyDatabaseScopeError",
+)<{
   readonly databaseScope: IdScope.IdScope;
 }> {
   override get message(): string {
@@ -13,8 +15,8 @@ export class EmptyDatabaseScope extends Data.TaggedError("EmptyDatabaseScope")<{
   }
 }
 
-export class TableBindingMismatch extends Data.TaggedError(
-  "TableBindingMismatch",
+export class TableBindingMismatchError extends Data.TaggedError(
+  "TableBindingMismatchError",
 )<{
   readonly bindingName: string;
   readonly tableName: string;
@@ -95,14 +97,16 @@ export type TableWithName<
 const validateBindings = (
   tableRecord: Readonly<Record<string, Table.AnyWithProps>>,
   target: Target,
-): Result.Result<void, EmptyDatabaseScope | TableBindingMismatch> => {
+): Result.Result<void, EmptyDatabaseScopeError | TableBindingMismatchError> => {
   if (target.kind === "component" && target.scope === "") {
-    return Result.fail(new EmptyDatabaseScope({ databaseScope: target.scope }));
+    return Result.fail(
+      new EmptyDatabaseScopeError({ databaseScope: target.scope }),
+    );
   }
   for (const [name, table] of Record.toEntries(tableRecord)) {
     if (name !== table.tableName || table.scope !== target.scope) {
       return Result.fail(
-        new TableBindingMismatch({
+        new TableBindingMismatchError({
           bindingName: name,
           tableName: table.tableName,
           tableScope: table.scope,
