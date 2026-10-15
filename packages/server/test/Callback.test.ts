@@ -10,6 +10,7 @@ import {
   Refs,
   Spec,
 } from "@confect/core";
+import type * as FunctionProvenance from "@confect/core/FunctionProvenance";
 import type * as RuntimeAndFunctionType from "@confect/core/RuntimeAndFunctionType";
 import * as Callback from "@confect/server/Callback";
 import { makeFunctionReference } from "convex/server";
@@ -125,22 +126,26 @@ describe("create checks the host's validators", () => {
           unsupportedOn === "host" ? Schema.String : template;
         const hostSchema =
           unsupportedOn === "contract" ? Schema.String : template;
+        const argsFor = (
+          schema: typeof contractSchema,
+        ): FunctionProvenance.ArgsFields =>
+          side === "args" ? { text: schema } : {};
         const Text = CoreCallback.mutation("counter/onText", {
-          args: () => (side === "args" ? { text: contractSchema } : {}),
+          args: () => argsFor(contractSchema),
           returns: () => (side === "returns" ? contractSchema : Schema.Null),
         });
         const text = host(
           FunctionSpec.internalMutation({
             name: "text",
-            args: () => (side === "args" ? { text: hostSchema } : {}),
+            args: () => argsFor(hostSchema),
             returns: () => (side === "returns" ? hostSchema : Schema.Null),
           }),
         );
-        const supported =
+        const supported: Schema.Json =
           side === "args"
             ? { kind: "object", fields: { text: { kind: "string" } } }
             : { kind: "string" };
-        const unsupported = {
+        const unsupported: Schema.Json = {
           kind: "unsupported",
           reason: "Unsupported schema type 'TemplateLiteral'",
         };
