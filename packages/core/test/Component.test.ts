@@ -360,6 +360,25 @@ describe("published component contracts", () => {
     void original;
   });
 
+  it("keeps constructor input types when reusing rebound fields", () => {
+    const rebound = Component.schema(
+      first,
+      Schema.Struct({ id: ItemId, label: Schema.String }),
+    );
+    const id = Schema.decodeUnknownSync(Component.id(first, "items"))("one");
+    expect(rebound.make({ id, label: "ready" })).toEqual({
+      id: "one",
+      label: "ready",
+    });
+    const invalid = () => {
+      // @ts-expect-error Rebinding keeps the label's constructor input type.
+      rebound.make({ id, label: 123 });
+      // @ts-expect-error Reusing fields keeps their constructor input types.
+      Schema.Struct(rebound.fields).make({ id, label: 123 });
+    };
+    void invalid;
+  });
+
   it("leaves id-free nominal classes and their methods intact", () => {
     class Label extends Schema.Class<Label>("Label")({ value: Schema.String }) {
       private readonly marker = "label";
