@@ -234,22 +234,38 @@ describe("create checks the host's validators", () => {
             },
           },
           {
-            kind: "union",
-            members: [
-              {
-                kind: "object",
-                fields: { _tag: { kind: "literal", value: "Blocked" } },
-              },
-              {
-                kind: "object",
-                fields: {
-                  _tag: { kind: "literal", value: "EventRejected" },
-                  reason: { kind: "string" },
-                },
-              },
-            ],
+            kind: "object",
+            fields: { _tag: { kind: "literal", value: "Blocked" } },
           },
         ),
+      );
+    }),
+  );
+
+  it.effect("refuses a rebuilt error schema Convex cannot compile", () =>
+    Effect.gen(function* () {
+      const reasoned = () =>
+        Schema.Struct({
+          _tag: Schema.Literal("Reasoned"),
+          reason: Schema.TemplateLiteral(["reason-", Schema.String]),
+        });
+      const Reasoning = CoreCallback.mutation("counter/onReasoning", {
+        returns: () => Schema.Null,
+        error: reasoned,
+      });
+      const rebuilt = host(
+        FunctionSpec.internalMutation({
+          name: "rebuilt",
+          returns: () => Schema.Null,
+          error: reasoned,
+        }),
+      );
+      const unsupported = {
+        kind: "unsupported",
+        reason: "Unsupported schema type 'TemplateLiteral'",
+      };
+      expect(yield* created(Callback.create(Reasoning, rebuilt))).toEqual(
+        mismatch("counter/onReasoning", "error", unsupported, unsupported),
       );
     }),
   );
@@ -283,6 +299,58 @@ describe("create checks the host's validators", () => {
         );
         expect(
           Result.isSuccess(yield* created(Callback.create(Mixed, mixed))),
+        ).toBe(true);
+      }),
+  );
+
+  it.effect("accepts validators that accept the same values", () =>
+    Effect.gen(function* () {
+      const Flagged = CoreCallback.mutation("counter/onFlagged", {
+        args: () => ({ flag: Schema.Boolean, name: Schema.String }),
+        returns: () => Schema.Null,
+      });
+      const flagged = host(
+        FunctionSpec.internalMutation({
+          name: "flagged",
+          args: () => ({
+            flag: Schema.Literals([true, false]),
+            name: Schema.Union([Schema.String, Schema.Literal("x")]),
+          }),
+          returns: () => Schema.Null,
+        }),
+      );
+      expect(
+        Result.isSuccess(yield* created(Callback.create(Flagged, flagged))),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect(
+    "accepts errors rebuilt with the contract's validators, or shared even when Convex cannot compile them",
+    () =>
+      Effect.gen(function* () {
+        class Rebuilt extends Schema.TaggedError<Rebuilt>()("EventRejected", {
+          reason: Schema.String,
+        }) {}
+        const Reasoned = Schema.Struct({
+          _tag: Schema.Literal("Reasoned"),
+          reason: Schema.TemplateLiteral(["reason-", Schema.String]),
+        });
+        const Reasoning = CoreCallback.mutation("counter/onReasoning", {
+          returns: () => Schema.Null,
+          error: () => Schema.Union([EventRejected, Reasoned]),
+        });
+        const reasoning = host(
+          FunctionSpec.internalMutation({
+            name: "reasoning",
+            returns: () => Schema.Null,
+            error: () => Schema.Union([Rebuilt, Reasoned]),
+          }),
+        );
+        expect(
+          Result.isSuccess(
+            yield* created(Callback.create(Reasoning, reasoning)),
+          ),
         ).toBe(true);
       }),
   );
