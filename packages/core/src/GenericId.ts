@@ -88,8 +88,47 @@ export type Rebase<
               : A extends ReadonlySet<infer Value>
                 ? ReadonlySet<Rebase<Value, From, To>>
                 : A extends object
-                  ? { [K in keyof A]: Rebase<A[K], From, To> }
+                  ? { [K in keyof A]: Rebase<A[K], From, To> } & (A extends {
+                      [K in keyof A]: Rebase<A[K], From, To>;
+                    }
+                      ? A
+                      : unknown)
                   : A;
+
+/**
+ * Preserve Structs and field maps while rebinding their value types. Other
+ * specialised schema members are not promised by the resulting codec.
+ */
+export type RebaseSchema<
+  S extends Schema.Constraint,
+  From extends IdScope.IdScope,
+  To extends IdScope.IdScope,
+> =
+  S extends Schema.Struct<infer Fields>
+    ? Schema.Struct<{ [K in keyof Fields]: RebaseSchema<Fields[K], From, To> }>
+    : Schema.Codec<
+        Rebase<S["Type"], From, To>,
+        Rebase<S["Encoded"], From, To>,
+        S["DecodingServices"],
+        S["EncodingServices"]
+      > &
+        Pick<
+          S,
+          | "~type.optionality"
+          | "~encoded.optionality"
+          | "~type.mutability"
+          | "~encoded.mutability"
+          | "~type.constructor.default"
+        > &
+        (S extends {
+          readonly fields: infer Fields extends Schema.Struct.Fields;
+        }
+          ? {
+              readonly fields: {
+                [K in keyof Fields]: RebaseSchema<Fields[K], From, To>;
+              };
+            }
+          : unknown);
 
 /**
  * Scope annotations belong to both sides of a codec. Keep its transformations,
@@ -103,11 +142,15 @@ export const rebase = <
   schema: Schema_,
   from: From,
   to: To,
-): Schema.Codec<
-  Rebase<Schema_["Type"], From, To>,
-  Rebase<Schema_["Encoded"], From, To>
-> => {
+): RebaseSchema<Schema_, From, To> => {
   const visit = memoize((ast: SchemaAST.AST): SchemaAST.AST => {
+    // Suspended schemas must retain a lazy rebinding thunk even before it runs.
+    let changed = SchemaAST.isSuspend(ast);
+    const child = (input: SchemaAST.AST): SchemaAST.AST => {
+      const next = visit(input);
+      if (next !== input) changed = true;
+      return next;
+    };
     const next = Match.value(ast).pipe(
       Match.tag(
         "Objects",
@@ -118,15 +161,15 @@ export const rebase = <
               (property) =>
                 new SchemaAST.PropertySignature(
                   property.name,
-                  visit(property.type),
+                  child(property.type),
                 ),
             ),
             Array.map(
               objects.indexSignatures,
               (index) =>
                 new SchemaAST.IndexSignature(
-                  visit(index.parameter),
-                  visit(index.type),
+                  child(index.parameter),
+                  child(index.type),
                 ),
             ),
             objects.annotations,
@@ -141,8 +184,8 @@ export const rebase = <
         (arrays) =>
           new SchemaAST.Arrays(
             arrays.isMutable,
-            Array.map(arrays.elements, visit),
-            Array.map(arrays.rest, visit),
+            Array.map(arrays.elements, child),
+            Array.map(arrays.rest, child),
             arrays.annotations,
             arrays.checks,
             undefined,
@@ -154,7 +197,7 @@ export const rebase = <
         "Union",
         (union) =>
           new SchemaAST.Union(
-            Array.map(union.types, visit),
+            Array.map(union.types, child),
             union.options,
             union.annotations,
             union.checks,
@@ -178,7 +221,7 @@ export const rebase = <
         "Declaration",
         (declaration) =>
           new SchemaAST.Declaration(
-            Array.map(declaration.typeParameters, visit),
+            Array.map(declaration.typeParameters, child),
             declaration.run,
             declaration.annotations,
             declaration.checks,
@@ -217,24 +260,52 @@ export const rebase = <
             [ConvexIdScope]: to + ownScope.slice(from.length),
           }).ast
         : next;
-    if (ast.encoding === undefined) return scoped;
+    if (ast.encoding === undefined) {
+      return changed || scoped !== next ? scoped : ast;
+    }
+    const encoding = Array.map(ast.encoding, (link) => {
+      const target = child(link.to);
+      return target === link.to
+        ? link
+        : new SchemaAST.Link(target, link.transformation);
+    });
+    if (!changed && scoped === next) return ast;
     // Effect's replaceEncoding helper is internal and omitted from its published
     // declarations. Preserve AST prototypes and descriptors at this boundary;
     // spreading the node itself would lose its class behavior.
     return Object.create(Object.getPrototypeOf(scoped), {
       ...Object.getOwnPropertyDescriptors(scoped),
       encoding: {
-        value: Array.map(
-          ast.encoding,
-          (link) => new SchemaAST.Link(visit(link.to), link.transformation),
-        ),
+        value: encoding,
         enumerable: true,
         configurable: true,
         writable: true,
       },
     }) as SchemaAST.AST;
   });
-  return Schema.make(visit(schema.ast));
+  const rebuild = memoize((input: Schema.Constraint): Schema.Constraint => {
+    const ast = visit(input.ast);
+    if (ast === input.ast) return input;
+    if ("fields" in input) {
+      const fields = (input as { readonly fields: Schema.Struct.Fields })
+        .fields;
+      const reboundFields = Object.fromEntries(
+        Reflect.ownKeys(fields).map((key) => [key, rebuild(fields[key]!)]),
+      );
+      if (
+        ast.encoding === undefined &&
+        SchemaAST.isObjects(ast) &&
+        "mapFields" in input
+      ) {
+        return (input as Schema.Struct<Schema.Struct.Fields>)
+          .mapFields(() => reboundFields, { unsafePreserveChecks: true })
+          .rebuild(ast);
+      }
+      return Schema.make(ast, { fields: reboundFields });
+    }
+    return Schema.make(ast);
+  });
+  return rebuild(schema) as RebaseSchema<Schema_, From, To>;
 };
 
 export const tableName = <TableName extends string>(
