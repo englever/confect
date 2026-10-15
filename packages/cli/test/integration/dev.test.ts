@@ -217,5 +217,53 @@ layer(NodeServices.layer, { excludeTestServices: true })(
         }).pipe(Effect.scoped),
       { timeout: 30000 },
     );
+
+    it.effect(
+      "re-emits the Convex config and manifest when a declaration file changes",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const project = yield* Project.make;
+          const env = (variable: string) =>
+            `import { Env } from "@confect/core";\nexport default Env.make("host", { ${variable}: Env.string() });\n`;
+          yield* project.write("confect/env.ts", env("FIRST"));
+          yield* project.write(
+            "confect/app.ts",
+            'import { App } from "@confect/core";\nimport env from "./env";\nexport default App.make({ env });\n',
+          );
+          const read = (file: string) =>
+            fs.readFileString(path.join(project.root, file));
+          const watching = yield* project.start("dev");
+          yield* watching.waitFor(success);
+          expect(yield* read("convex/convex.config.ts")).toContain(
+            "FIRST: v.string(),",
+          );
+          yield* Ref.set(watching.output, "");
+          yield* project.write("confect/env.ts", env("SECOND"));
+          yield* watching.waitFor(success);
+          expect(yield* read("convex/convex.config.ts")).toContain(
+            "SECOND: v.string(),",
+          );
+          expect(yield* read("confect/_generated/manifest.ts")).toContain(
+            '"SECOND": {',
+          );
+          const auth = (applicationID: string) =>
+            `import { Auth } from "@confect/core";\nimport app from "./app";\nexport default Auth.make(app, { providers: [{ domain: "https://login.example.test", applicationID: "${applicationID}" }] });\n`;
+          yield* Ref.set(watching.output, "");
+          yield* project.write("confect/auth.ts", auth("first"));
+          yield* watching.waitFor(success);
+          yield* Ref.set(watching.output, "");
+          yield* project.write("confect/auth.ts", auth("second"));
+          yield* watching.waitFor(success);
+          expect(yield* read("convex/auth.config.ts")).toContain(
+            'applicationID: "second",',
+          );
+          const settled = yield* Ref.get(watching.output);
+          yield* Effect.sleep("2 seconds");
+          expect(yield* Ref.get(watching.output)).toBe(settled);
+        }).pipe(Effect.scoped),
+      { timeout: 30000 },
+    );
   },
 );
