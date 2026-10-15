@@ -33,6 +33,8 @@ export const consumerManifest = (version: string) => {
       effect: "4.0.1",
       "@effect/platform-node": "4.0.1",
     },
+    // Pinned to the versions this workspace itself is verified against, so the
+    // consumer typechecks and tests with the same toolchain; a bump is one edit.
     devDependencies: {
       "@types/node": "26.6.4",
       typescript: "7.0.2",
