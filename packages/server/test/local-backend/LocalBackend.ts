@@ -38,8 +38,9 @@ const URL = "http://127.0.0.1:3210";
 
 // Knobs read by `crates/common/src/knobs.rs` in convex-backend. Lowering
 // these shrinks `MAX_CACHE_AGE` (= `USER_TIMEOUT` + `SYSTEM_TIMEOUT` + 1s,
-// per `crates/application/src/cache/mod.rs`) to ~11s. The nested fixtures need
-// more than one second per UDF; cache tests derive their wait from these limits.
+// per `crates/application/src/cache/mod.rs`) to ~11s. Both suite-wide budgets
+// were raised after a one-second nested-call timeout under host load. Cache
+// tests derive their wait from these limits.
 const USER_TIMEOUT_SECONDS = 5;
 const SYSTEM_TIMEOUT_SECONDS = 5;
 
