@@ -142,15 +142,19 @@ pnpm alchemy dev
 Under `alchemy dev`, `Convex.providers()` resolves each `Convex` resource to a local implementation. Your stack definition does not change, and no access token or deploy key is used:
 
 - `Convex.Deployment` downloads the Convex backend release `precompiled-2026-10-06-a3538c6` into the Convex CLI's binary cache and runs it on `127.0.0.1`. The deployment's `url` points at the local backend.
-- `Convex.DeployKey` returns the local backend's admin key.
+- `Convex.DeployKey` returns the local backend's admin key. It grants full access to that backend whatever `allowedActions` you request.
 - `Convex.Project` returns a local placeholder and does not contact Convex.
 - `Convex.EnvironmentVariables`, `Convex.Code`, and `Confect.Backend` set variables and push code to the local backend, in the same order as in the cloud.
 
 Values your stack reads with `Config`, such as `CONVEX_TEAM_ID`, must still resolve in development. Give them a development default or set them in your shell.
 
-The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, with the same URL. Removing the deployment from your stack keeps this data; `RemovalPolicy.destroy()` deletes it.
+The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, on the same ports and URL. If another program has taken one of those ports, `alchemy dev` fails rather than moving the backend; free the port and run it again. Only one session can serve a data directory at a time.
 
-Code is pushed each time the stack applies. `alchemy dev` re-applies when a file your stack imports changes; after editing Convex functions that your stack does not import, save `alchemy.run.ts` or restart `alchemy dev` to push them. Pushes to one deployment wait for each other, so two stacks or resources that target the same backend never push at the same time.
+Removing the deployment from your stack keeps its data; `RemovalPolicy.destroy()` deletes it. If you lose your Alchemy state, the next `alchemy dev` creates a new deployment, and the old data directory stays until you delete it.
+
+Code is pushed each time the stack applies. `alchemy dev` re-applies when a file your stack imports changes; after editing Convex functions that your stack does not import, save `alchemy.run.ts` or restart `alchemy dev` to push them.
+
+Pushes to one deployment wait for each other, locally and in the cloud, so two resources, stacks, or checkouts on one machine never push to the same deployment at the same time. The locks live in your user cache directory (`~/.cache/confect/alchemy/locks`, or `%LOCALAPPDATA%\confect\alchemy\locks` on Windows). Pushes from different machines, such as two CI jobs, are not coordinated.
 
 By default the backend binds two free ports chosen by the operating system. To pick from a range instead, set `CONFECT_LOCAL_BACKEND_PORTS`:
 
@@ -158,12 +162,13 @@ By default the backend binds two free ports chosen by the operating system. To p
 CONFECT_LOCAL_BACKEND_PORTS=3300-3399 pnpm alchemy dev
 ```
 
-A data directory created by one backend release is not upgraded by another. If a later version of this integration pins a newer release, `alchemy dev` fails with a version-change error until you delete that deployment's data directory.
+Each data directory keeps running the backend release that created it, even after a later version of this integration pins a newer release. To move a deployment to the newer release, delete its data directory.
 
 <Warning>
   The data directory contains the local backend's admin key and instance secret.
   Keep `.alchemy/` out of version control. Local backends listen on `127.0.0.1`
-  only.
+  only, but the backend receives its instance secret as a command-line argument,
+  which other users of the same machine can see in the process list.
 </Warning>
 
 ## Understand updates and deletion

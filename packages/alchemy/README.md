@@ -10,7 +10,7 @@ Use `Convex.providers()` in your Alchemy stack. The integration targets Alchemy 
 
 See the [deployment guide](https://confect.dev/guides/alchemy) for complete examples, credentials, ownership, and deletion policies.
 
-Projects and deployments are retained by default. Treat your Alchemy state as a secret store: it contains deployment credentials and managed environment values. Code deployment runs on every apply and never deletes data when removed from a stack. Pushes to one deployment never overlap.
+Projects and deployments are retained by default. Treat your Alchemy state as a secret store: it contains deployment credentials and managed environment values. Code deployment runs on every apply and never deletes data when removed from a stack. Pushes to one deployment from the same machine never overlap.
 
 Under `alchemy dev`, the same resources run against a local Convex backend that the integration downloads, starts, and stops with the dev session. Its data and credentials live in `.alchemy/convex/<stack>/<stage>/<deployment>`.
 
