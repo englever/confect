@@ -75,4 +75,15 @@ layer(
         });
       }),
   );
+  it.effect("keeps unmatched app and component responses in Effect", () =>
+    Effect.gen(function* () {
+      for (const requestPath of ["/no-such-route", "/first/no-such-route"]) {
+        const response = yield* HttpClient.get(
+          `http://127.0.0.1:3211${requestPath}`,
+        );
+        expect(response.status).toBe(404);
+        expect(yield* response.text).toBe("");
+      }
+    }),
+  );
 });
