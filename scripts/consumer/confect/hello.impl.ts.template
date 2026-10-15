@@ -1,0 +1,12 @@
+import { FunctionImpl, GroupImpl } from "@confect/server";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import databaseSchema from "./_generated/schema";
+import hello from "./hello.spec";
+const greet = FunctionImpl.make(databaseSchema, hello, "greet", () =>
+  Effect.succeed("hello from fork"),
+);
+export default GroupImpl.make(databaseSchema, hello).pipe(
+  Layer.provide(greet),
+  GroupImpl.finalize,
+);
