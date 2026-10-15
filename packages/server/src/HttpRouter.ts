@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import type * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 import * as FindMyWay from "effect/http/FindMyWay";
 import * as HttpApi from "effect/http-api/HttpApi";
 import type * as HttpApiGroup from "effect/http-api/HttpApiGroup";
@@ -231,14 +232,14 @@ const makeWithLayer = <
           (candidate) => candidate === endpoint.method,
         );
         if (method === undefined) return;
-        matcher.on(method, endpoint.path as FindMyWay.PathInput, endpoint.path);
+        const path = apiRouterPath(
+          endpoint.path as FindMyWay.PathInput,
+          endpoint.params,
+        );
+        matcher.on(method, path, endpoint.path);
         // Effect also matches a wildcard route's base path without its slash.
-        if (endpoint.path.endsWith("/*")) {
-          matcher.on(
-            method,
-            endpoint.path.slice(0, -2) as `/${string}`,
-            endpoint.path,
-          );
+        if (path.endsWith("/*")) {
+          matcher.on(method, path.slice(0, -2) as `/${string}`, endpoint.path);
         }
         reflected.push([endpoint.path, method, httpAction]);
       },
@@ -267,6 +268,55 @@ const makeWithLayer = <
   }
 
   return convexHttpRouter;
+};
+
+// Match Effect's HttpApiBuilder path normalization, which is not publicly
+// exported (effect/http-api/internal/path.ts). Undeclared colons are literals;
+// declared params followed by a literal suffix need an explicit regex boundary.
+const apiRouterPath = (
+  path: FindMyWay.PathInput,
+  params: Schema.Top | undefined,
+): FindMyWay.PathInput => {
+  if (params === undefined || !path.includes(":")) return path;
+  let ast = params.ast;
+  while (ast.encoding !== undefined) {
+    ast = ast.encoding[ast.encoding.length - 1].to;
+  }
+  if (!SchemaAST.isObjects(ast) || ast.indexSignatures.length !== 0)
+    return path;
+  const names = new Set(
+    ast.propertySignatures.map((property) => String(property.name)),
+  );
+  let normalized = "";
+  let depth = 0;
+  let regexStart = -1;
+  for (let i = 0; i < path.length; i++) {
+    const char = path[i];
+    if (depth > 0 || i === regexStart) {
+      normalized += char;
+      if (char === "\\") normalized += path[++i] ?? "";
+      else if (char === "(") depth++;
+      else if (char === ")") depth--;
+    } else if (char !== ":") {
+      normalized += char;
+    } else if (path[i + 1] === ":") {
+      normalized += "::";
+      i++;
+    } else {
+      const param = /^:(\w+)/.exec(path.slice(i));
+      if (param !== null && names.has(param[1])) {
+        normalized += param[0];
+        i += param[0].length - 1;
+        const next = path[i + 1];
+        if (next === "(") regexStart = i + 1;
+        else if (next !== undefined && !"/.-?".includes(next))
+          normalized += "(.*?)";
+      } else {
+        normalized += "::";
+      }
+    }
+  }
+  return normalized as FindMyWay.PathInput;
 };
 
 // These are necessary until the Convex runtime supports these APIs. See
