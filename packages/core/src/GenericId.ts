@@ -52,6 +52,15 @@ export type Rebase<
   A,
   From extends IdScope.IdScope,
   To extends IdScope.IdScope,
+> = RebaseValue<A, From, To, true>;
+
+// Compare against a purely structural mapping. Comparing a recursive object
+// against its nominal-preserving mapping makes the compatibility check circular.
+type RebaseValue<
+  A,
+  From extends IdScope.IdScope,
+  To extends IdScope.IdScope,
+  PreserveIdentity extends boolean,
 > = A extends { readonly [Ref.TypeId]: Ref.TypeId }
   ? A
   : A extends {
@@ -80,18 +89,31 @@ export type Rebase<
             | ((...args: never[]) => unknown)
         ? A
         : A extends Map<infer Key, infer Value>
-          ? Map<Rebase<Key, From, To>, Rebase<Value, From, To>>
+          ? Map<
+              RebaseValue<Key, From, To, PreserveIdentity>,
+              RebaseValue<Value, From, To, PreserveIdentity>
+            >
           : A extends ReadonlyMap<infer Key, infer Value>
-            ? ReadonlyMap<Rebase<Key, From, To>, Rebase<Value, From, To>>
+            ? ReadonlyMap<
+                RebaseValue<Key, From, To, PreserveIdentity>,
+                RebaseValue<Value, From, To, PreserveIdentity>
+              >
             : A extends Set<infer Value>
-              ? Set<Rebase<Value, From, To>>
+              ? Set<RebaseValue<Value, From, To, PreserveIdentity>>
               : A extends ReadonlySet<infer Value>
-                ? ReadonlySet<Rebase<Value, From, To>>
+                ? ReadonlySet<RebaseValue<Value, From, To, PreserveIdentity>>
                 : A extends object
-                  ? { [K in keyof A]: Rebase<A[K], From, To> } & (A extends {
-                      [K in keyof A]: Rebase<A[K], From, To>;
-                    }
-                      ? A
+                  ? {
+                      [K in keyof A]: RebaseValue<
+                        A[K],
+                        From,
+                        To,
+                        PreserveIdentity
+                      >;
+                    } & (PreserveIdentity extends true
+                      ? A extends RebaseValue<A, From, To, false>
+                        ? A
+                        : unknown
                       : unknown)
                   : A;
 
@@ -119,8 +141,11 @@ export type RebaseSchema<
           | "~type.mutability"
           | "~encoded.mutability"
           | "~type.constructor.default"
-        > &
-        (S extends {
+        > & {
+          readonly "~type.make.in": Rebase<S["~type.make.in"], From, To>;
+          readonly "~type.make": Rebase<S["~type.make"], From, To>;
+          readonly Iso: Rebase<S["Iso"], From, To>;
+        } & (S extends {
           readonly fields: infer Fields extends Schema.Struct.Fields;
         }
           ? {
