@@ -133,6 +133,19 @@ export interface ConvexRef<
   readonly _tag: "Convex";
 }
 
+/**
+ * A ref's call contract without a visibility requirement. Use this for handlers
+ * shared by a component's public ref and its host's internal binding. Args,
+ * returns, errors, runtime and function kind remain constrained.
+ */
+export type Callable<Ref_ extends Any> = Ref<
+  GetRuntimeAndFunctionType<Ref_>,
+  FunctionVisibility,
+  Args<Ref_>,
+  Returns<Ref_>,
+  Error<Ref_>
+>;
+
 export type Any = Ref<any, any, any, any, any>;
 
 /**
