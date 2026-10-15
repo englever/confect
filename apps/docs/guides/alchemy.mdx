@@ -6,7 +6,7 @@ description: "Provision Convex cloud resources and deploy a Confect backend as p
 
 `@confect/alchemy` integrates Convex cloud deployments with [Alchemy](https://alchemy.run). Use `Convex` resources for plain Convex applications, or `Confect.Backend` to run Confect codegen before pushing your backend. Your existing tables, specs, impls, and client code do not change.
 
-This integration supports Alchemy `2.0.0-beta.82` and Effect v4. It does not start a local Convex backend or infer infrastructure from your function implementations. Resources remain cloud-backed when used with `alchemy dev`.
+This integration supports Alchemy `2.0.0-beta.82` and Effect v4. It does not infer infrastructure from your function implementations. With `alchemy dev`, the same resources run against a local Convex backend instead of Convex cloud; see [Develop locally](#develop-locally).
 
 ## Install
 
@@ -130,6 +130,46 @@ const code =
 ```
 
 You can also declare `Convex.EnvironmentVariables` separately. A standalone code resource must depend on its outputs if those variables need to be applied first; declaring resources in source order alone does not establish a dependency. `Confect.Backend` handles this ordering for its `env` option.
+
+## Develop locally
+
+Run the same stack with `alchemy dev` to develop against a local Convex backend:
+
+```sh
+pnpm alchemy dev
+```
+
+Under `alchemy dev`, `Convex.providers()` resolves each `Convex` resource to a local implementation. Your stack definition does not change, and no access token or deploy key is used:
+
+- `Convex.Deployment` downloads the Convex backend release `precompiled-2026-10-06-a3538c6` into the Convex CLI's binary cache and runs it on `127.0.0.1`. The deployment's `url` points at the local backend.
+- `Convex.DeployKey` returns the local backend's admin key. It grants full access to that backend whatever `allowedActions` you request.
+- `Convex.Project` returns a local placeholder and does not contact Convex.
+- `Convex.EnvironmentVariables`, `Convex.Code`, and `Confect.Backend` set variables and push code to the local backend, in the same order as in the cloud.
+
+Values your stack reads with `Config`, such as `CONVEX_TEAM_ID`, must still resolve in development. Give them a development default or set them in your shell.
+
+The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. If it exits or fails to start, the next reload starts it again. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, on the same ports and URL. Only one session can serve a data directory at a time.
+
+Removing the deployment from your stack keeps its data; `RemovalPolicy.destroy()` deletes it. If you lose your Alchemy state, the next `alchemy dev` creates a new deployment, and the old data directory stays until you delete it. Removing `Convex.EnvironmentVariables` while its backend is not running drops them from your Alchemy state but leaves them set in the kept data.
+
+Code is pushed each time the stack applies. `alchemy dev` re-applies when a file your stack imports changes; after editing Convex functions that your stack does not import, save `alchemy.run.ts` or restart `alchemy dev` to push them.
+
+Pushes to one deployment wait for each other, locally and in the cloud, so two resources, stacks, or checkouts never push to the same deployment at the same time. The locks live in your user cache directory (`~/.cache/confect/alchemy/locks`, or `%LOCALAPPDATA%\confect\alchemy\locks` on Windows), so they coordinate every process that shares it. Pushes from a different user, a different home directory, or a different machine, such as two CI jobs, are not coordinated. If the `alchemy` process is killed outright, for example with `kill -9`, a push it started can finish without holding the lock; let it finish before pushing again.
+
+By default the backend binds two free ports chosen by the operating system. A deployment keeps its ports once the backend has started on them, so a failed first start picks new ones. If another program has taken one of the kept ports, `alchemy dev` fails rather than moving the backend; free the port and run it again. To pick ports from a range instead, set `CONFECT_LOCAL_BACKEND_PORTS`:
+
+```sh
+CONFECT_LOCAL_BACKEND_PORTS=3300-3399 pnpm alchemy dev
+```
+
+Each data directory keeps running the backend release that created it, even after a later version of this integration pins a newer release. To move a deployment to the newer release, delete its data directory.
+
+<Warning>
+  The data directory contains the local backend's admin key and instance secret.
+  Keep `.alchemy/` out of version control. Local backends listen on `127.0.0.1`
+  only, but the backend receives its instance secret as a command-line argument,
+  which other users of the same machine can see in the process list.
+</Warning>
 
 ## Understand updates and deletion
 
