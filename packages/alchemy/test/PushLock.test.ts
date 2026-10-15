@@ -197,6 +197,17 @@ setTimeout(() => process.exit(0), 600);`,
     ).pipe(provide),
   );
 
+  it("says which deployment's push lock failed and why", () => {
+    expect(
+      new PushLockError({
+        deploymentName: "happy-otter-123",
+        reason: "timeout",
+      }).message,
+    ).toBe(
+      "Timed out waiting for another push to happy-otter-123 to release its push lock",
+    );
+  });
+
   it.live(
     "stops waiting promptly when interrupted and leaves the holder's lock",
     () =>

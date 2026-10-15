@@ -217,6 +217,22 @@ describe("LocalBackend", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it("says why a backend could not start", () => {
+    expect(
+      new LocalBackendError({ deploymentName: name, reason: "running" })
+        .message,
+    ).toBe(
+      `Local backend for ${name} is already running in another session over its data directory`,
+    );
+    expect(
+      new LocalBackendError({
+        deploymentName: name,
+        reason: "exit",
+        exitCode: 3,
+      }).message,
+    ).toBe(`Local backend for ${name} exited with code 3 before it was ready`);
+  });
+
   it.live("stops a backend that never answers with its own name", () =>
     Effect.gen(function* () {
       const fake = fakeBackend({ answerAs: "someone-else" });
