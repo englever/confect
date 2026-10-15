@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import * as componentTesting from "./fixtures/componentTesting";
 import * as mounts from "../local-backend/fixtures/confect/componentBindings";
 import counterConvexSchema from "../local-backend/fixtures/components/counter/convex/schema";
 import innerConvexSchema from "../local-backend/fixtures/components/inner/convex/schema";
@@ -17,15 +18,19 @@ import {
 // Keep the server/test workspace dependency graph acyclic, as in mock-backend/TestConfect.ts.
 import { TestConfect } from "../../../test/src";
 import { expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { convexTest } from "convex-test";
 import {
   componentsGeneric,
   defineSchema,
+  httpRouter,
   type FunctionReference,
 } from "convex/server";
 import * as Effect from "effect/Effect";
 import * as Array from "effect/Array";
 import * as Result from "effect/Result";
+import * as Exit from "effect/Exit";
+import * as Cause from "effect/Cause";
 import contract from "../../../cli/test/fixtures/authored-component/confect/_generated/component";
 import componentSchema from "../../../cli/test/fixtures/authored-component/convex/schema";
 
@@ -303,4 +308,264 @@ it.effect(
         TestConfect.layer(hostSchema, hostConvexSchema, hostModules),
       ),
     ),
+);
+
+it.effect(
+  "registers a component kit before the TestConfect layer resolves",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      yield* t.mutation(first.counter.create, { count: 17 });
+      expect(
+        Array.map(yield* t.query(first.counter.list), (row) => row.count),
+      ).toEqual([17]);
+    }).pipe(
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+          register: (registerComponent) =>
+            componentTesting.register(registerComponent, "first"),
+        }),
+      ),
+    ),
+);
+
+const mountedLayer = TestConfect.layer(
+  hostSchema,
+  hostConvexSchema,
+  {
+    ...hostModules,
+    "http.ts": () => Promise.resolve({ default: httpRouter() }),
+  },
+  {
+    register: (registerComponent) => {
+      for (const name of ["first", "second", "first/child"]) {
+        componentTesting.register(registerComponent, name);
+      }
+    },
+    httpMounts: [
+      { componentPath: "first", httpPrefix: "/email" },
+      { componentPath: "second", httpPrefix: "/other" },
+      { componentPath: "first/child", httpPrefix: "/email/nested" },
+    ],
+  },
+);
+
+it.effect(
+  "fetches each mounted component with its site URL at construction",
+  () =>
+    Effect.gen(function* () {
+      vi.stubEnv("CONVEX_SITE_URL", "https://app.convex.site");
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      const responses = yield* Effect.forEach(
+        ["/email/ping", "/other/ping", "/email/nested/ping"],
+        (path) => t.withIdentity({ subject: "caller" }).fetch(path),
+        { concurrency: "unbounded" },
+      );
+      expect(responses.map((response) => response.status)).toEqual([
+        200, 200, 200,
+      ]);
+      expect(
+        yield* Effect.promise(() =>
+          Promise.all(responses.map((response) => response.json())),
+        ),
+      ).toEqual([
+        { siteUrl: "https://app.convex.site/email" },
+        { siteUrl: "https://app.convex.site/other" },
+        { siteUrl: "https://app.convex.site/email/nested" },
+      ]);
+      // oxlint-disable-next-line effecttsgo/process-env-in-effect -- Check the process-global override was restored after the HTTP boundary.
+      expect(process.env.CONVEX_SITE_URL).toBe("https://app.convex.site");
+    }).pipe(
+      Effect.provide(mountedLayer),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    ),
+);
+
+it.effect(
+  "routes mounted HTTP writes into the selected component database",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      const response = yield* t.fetch("/email/record", {
+        method: "POST",
+        body: "31",
+      });
+      expect(response.status).toBe(204);
+      expect(
+        Array.map(yield* t.query(first.counter.list), (row) => row.count),
+      ).toEqual([31]);
+      expect(yield* t.query(second.counter.list)).toEqual([]);
+    }).pipe(Effect.provide(mountedLayer)),
+);
+
+it.effect("keeps query strings and headers at the exact mount path", () =>
+  Effect.gen(function* () {
+    const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+    const response = yield* t.fetch("/other?key=value", {
+      headers: { "x-test": "present" },
+    });
+    expect(response.status).toBe(200);
+    expect(yield* Effect.promise(() => response.json())).toEqual({
+      siteUrl: "https://some.convex.site/other",
+      url: "?key=value",
+      originalUrl: "https://some.convex.site/other?key=value",
+      header: "present",
+    });
+  }).pipe(Effect.provide(mountedLayer)),
+);
+
+it.effect("leaves unmounted paths and partial prefix matches to the root", () =>
+  Effect.gen(function* () {
+    const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+    const mounted = yield* t.fetch("/email/ping");
+    vi.stubEnv("CONVEX_SITE_URL", "invalid-site-url");
+    const responses = yield* Effect.forEach(
+      ["/missing/ping", "/emails/ping", "/ping"],
+      (path) => t.fetch(path),
+    );
+    expect([
+      mounted.status,
+      ...responses.map((response) => response.status),
+    ]).toEqual([200, 404, 404, 404]);
+  }).pipe(
+    Effect.provide(mountedLayer),
+    Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+  ),
+);
+
+it.effect(
+  "restores the site URL after construction fails and accepts another fetch",
+  () =>
+    Effect.gen(function* () {
+      vi.stubEnv("CONVEX_SITE_URL", "https://failure.convex.site");
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      yield* t.registerComponent("first", componentSchema, {
+        ...componentTesting.modules,
+        "http.ts": () =>
+          Promise.reject({
+            _tag: "HttpConstructionFailure",
+            message: "HTTP fixture construction failed",
+          }),
+      });
+      const failed = yield* Effect.exit(t.fetch("/email/ping"));
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(Cause.squash(failed.cause)).toMatchObject({
+          _tag: "HttpConstructionFailure",
+        });
+      }
+      const response = yield* t.fetch("/other/ping");
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        siteUrl: "https://failure.convex.site/other",
+      });
+      // oxlint-disable-next-line effecttsgo/process-env-in-effect -- The adapter must restore the actual process variable after a rejected module loader.
+      expect(process.env.CONVEX_SITE_URL).toBe("https://failure.convex.site");
+    }).pipe(
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+          register: (registerComponent) =>
+            componentTesting.register(registerComponent, "second"),
+          httpMounts: [
+            { componentPath: "first", httpPrefix: "/email" },
+            { componentPath: "second", httpPrefix: "/other" },
+          ],
+        }),
+      ),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    ),
+);
+
+it.effect(
+  "preserves structured HTTP compatibility failures across the action boundary",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      const result = yield* Effect.exit(t.fetch("/email/ping"));
+      expect(Exit.isFailure(result)).toBe(true);
+      if (Exit.isFailure(result)) {
+        expect(Cause.squash(result.cause)).toMatchObject({
+          _tag: "ComponentHttpError",
+          componentPath: "first",
+          message:
+            "This Convex version does not expose invokeHttpAction for HTTP tests.",
+        });
+      }
+    }).pipe(
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+          register: (registerComponent) =>
+            registerComponent("first", componentSchema, {
+              ...componentTesting.modules,
+              "http.ts": () =>
+                Promise.resolve({
+                  default: { lookup: () => [{ isHttp: true }, "GET", "/ping"] },
+                }),
+            }),
+          httpMounts: [{ componentPath: "first", httpPrefix: "/email" }],
+        }),
+      ),
+    ),
+);
+
+it.effect(
+  "uses the default site URL when the application variable is empty",
+  () =>
+    Effect.gen(function* () {
+      vi.stubEnv("CONVEX_SITE_URL", "");
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      const response = yield* t.fetch("/email/ping");
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        siteUrl: "https://some.convex.site/email",
+      });
+    }).pipe(
+      Effect.provide(mountedLayer),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    ),
+);
+
+it.effect(
+  "loads component HTTP modules with convex-test's extension handling",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      const response = yield* t.fetch("/email/ping");
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        siteUrl: "https://some.convex.site/email",
+      });
+    }).pipe(
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+          register: (registerComponent) =>
+            registerComponent(
+              "first",
+              componentSchema,
+              Object.fromEntries(
+                Object.entries(componentTesting.modules).map(([path, load]) => [
+                  path === "http.ts" ? "http.mjs" : path,
+                  load,
+                ]),
+              ),
+            ),
+          httpMounts: [{ componentPath: "first", httpPrefix: "/email" }],
+        }),
+      ),
+    ),
+);
+
+it.effect("fetches an installation mounted at the root prefix", () =>
+  Effect.gen(function* () {
+    const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+    const response = yield* t.fetch("/ping");
+    expect(yield* Effect.promise(() => response.json())).toEqual({
+      siteUrl: "https://some.convex.site",
+    });
+  }).pipe(
+    Effect.provide(
+      TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+        register: (registerComponent) =>
+          componentTesting.register(registerComponent, "first"),
+        httpMounts: [{ componentPath: "first", httpPrefix: "/" }],
+      }),
+    ),
+  ),
 );
