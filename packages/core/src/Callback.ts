@@ -271,13 +271,15 @@ type Mismatch<Contract_ extends Any, Ref_ extends Ref.Any> = FirstOf<
 >;
 
 /**
- * `unknown` when host ref `Ref_` satisfies `Contract_`, otherwise an object
- * type naming the first mismatch. The check compares what crosses the wire,
- * with database IDs compared as strings. The host's encoded args must equal the
- * encoded args the component sends, because Convex's validator rejects any
- * field the host does not declare. The host's encoded returns and errors
- * (middleware errors included) must be ones the contract's codecs decode. A ref
- * whose codecs are erased cannot be checked and is refused.
+ * `unknown` when host ref `Ref_` satisfies `Contract_` as far as its types
+ * show, otherwise an object type naming the first mismatch. The check compares
+ * the types that cross the wire, with a component's IDs compared as strings.
+ * The host's encoded args and returns must equal the contract's, and its
+ * encoded errors (middleware errors included) must be ones the contract's
+ * codecs decode. A ref whose codecs are erased cannot be checked and is
+ * refused. Types miss what only the validators show, such as field names behind
+ * a `Record` type, so `Callback.create` in `@confect/server` also compares the
+ * compiled validators before it creates a handle.
  */
 export type Check<Contract_ extends Any, Ref_ extends Ref.Any> = [
   Mismatch<Contract_, Ref_>,

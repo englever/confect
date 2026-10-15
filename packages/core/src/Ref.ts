@@ -300,10 +300,6 @@ export type ReturnsSchema<Ref_> = Ref_ extends {
   : never;
 
 /**
- * The function's own error codec carried by a Confect-provenance ref; errors
- * contributed by middleware are not part of it.
- */
-/**
  * The wire form of every error a ref can fail with: its function's declared
  * error and its middleware's errors.
  */
@@ -313,6 +309,10 @@ export type EncodedError<Ref_> = Ref_ extends {
   ? EncodedError_
   : never;
 
+/**
+ * The function's own error codec carried by a Confect-provenance ref; errors
+ * contributed by middleware are not part of it.
+ */
 export type ErrorSchema<Ref_> = Ref_ extends {
   readonly _tag: "Confect";
   readonly error?: infer ErrorSchema_;
