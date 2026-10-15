@@ -124,3 +124,33 @@ it("labels component routes relative to the component, with the same reflected A
   expect(matchLabel(router, "/users/42")).toEqual(["GET", "/users/:id"]);
   expect(matchLabel(router, "/nope")).toEqual(["GET", "/nope"]);
 });
+
+it("labels prefixed wildcard routes at their base path and descendants", () => {
+  const assetsApi = HttpApi.make("assets")
+    .add(
+      HttpApiGroup.make("assets").add(
+        HttpApiEndpoint.get("download", "/assets/*"),
+      ),
+    )
+    .prefix("/v1");
+  const assetsRoutes = HttpApiBuilder.layer(assetsApi).pipe(
+    Layer.provide(
+      HttpApiBuilder.group(assetsApi, "assets", (handlers) =>
+        handlers.handle("download", () => Effect.void),
+      ),
+    ),
+  );
+  const router = ConfectHttpRouter.make(assetsRoutes, { api: assetsApi });
+  expect(labels(router)).toEqual([["GET", "/v1/assets/*"]]);
+  expect([
+    matchLabel(router, "/v1/assets"),
+    matchLabel(router, "/v1/assets/"),
+    matchLabel(router, "/v1/assets/icons/logo.svg"),
+    matchLabel(router, "/v1/elsewhere"),
+  ]).toEqual([
+    ["GET", "/v1/assets/*"],
+    ["GET", "/v1/assets/*"],
+    ["GET", "/v1/assets/*"],
+    ["GET", "/v1/elsewhere"],
+  ]);
+});
