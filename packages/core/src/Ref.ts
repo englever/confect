@@ -34,6 +34,11 @@ export interface Base<
   readonly "~RuntimeAndFunctionType": RuntimeAndFunctionType_;
   readonly "~FunctionVisibility": FunctionVisibility_;
   readonly "~Args": Args_;
+  // Concrete call inputs must not narrow across assignments. Erased refs and
+  // pagination constraints use index signatures and keep their broad variance.
+  readonly "~ArgsVariance"?: string extends keyof Args_
+    ? unknown
+    : (args: Args_) => void;
   readonly "~Returns": Returns_;
   readonly "~Error": Error_;
   readonly convexFunctionName: string;
