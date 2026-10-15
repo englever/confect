@@ -3,6 +3,7 @@ import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import schema from "./_generated/schema";
 import refs from "./_generated/refs";
@@ -110,7 +111,6 @@ const environment = FunctionImpl.make(schema, counter, "environment", () =>
       marker,
       unbound,
       hostOnly,
-      // Compare native reads with Config at the actual component boundary.
       // oxlint-disable-next-line effecttsgo/process-env-in-effect -- Compare direct native reads with Config for this installation.
       directRequired: process.env.COMPONENT_REQUIRED ?? "unset",
     };
@@ -119,17 +119,31 @@ const environment = FunctionImpl.make(schema, counter, "environment", () =>
 const tick = FunctionImpl.make(schema, counter, "tick", () =>
   Effect.gen(function* () {
     const writer = yield* DatabaseWriter;
-    yield* writer.table("counters").insert({ run: "cron", count: 1 });
+    const reader = yield* DatabaseReader;
+    const table = writer.table("counters");
+    const current = yield* reader
+      .table("counters")
+      .index("by_run", (range) => range.eq("run", "cron"))
+      .first();
+    if (Option.isNone(current)) {
+      yield* table.insert({ run: "cron", count: 1 });
+    } else {
+      yield* table.patch(current.value._id, { count: current.value.count + 1 });
+    }
     return null;
   }).pipe(Effect.orDie),
 );
 const ticks = FunctionImpl.make(schema, counter, "ticks", () =>
   Effect.gen(function* () {
     const reader = yield* DatabaseReader;
-    return (yield* reader
+    const current = yield* reader
       .table("counters")
       .index("by_run", (range) => range.eq("run", "cron"))
-      .collect()).length;
+      .first();
+    return Option.match(current, {
+      onNone: () => 0,
+      onSome: (row) => row.count,
+    });
   }).pipe(Effect.orDie),
 );
 
