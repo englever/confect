@@ -52,4 +52,5 @@ export default ConfectHttpRouter.forSchema(schema)(
       }),
     ),
   ),
+  { api },
 );

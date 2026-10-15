@@ -46,4 +46,5 @@ export default ConfectHttpRouter.make(
       }),
     ),
   ),
+  { api },
 );
