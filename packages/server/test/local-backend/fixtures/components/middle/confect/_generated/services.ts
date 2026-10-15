@@ -13,7 +13,6 @@ import {
   QueryTransactionContext as QueryTransactionContext_,
   RequestMetadata as RequestMetadata_,
   Scheduler as Scheduler_,
-  Storage as Storage_,
   StorageActionWriter as StorageActionWriter_,
   StorageReader as StorageReader_,
   StorageWriter as StorageWriter_,
@@ -36,9 +35,6 @@ export type TransactionMetadata = typeof TransactionMetadata.Identifier;
 
 export const Scheduler = Scheduler_.forScope<typeof scope>();
 export type Scheduler = typeof Scheduler.Identifier;
-
-export const Storage = Storage_.Storage;
-export type Storage = typeof Storage.Identifier;
 
 export const StorageReader = StorageReader_.StorageReader.forScope<typeof scope>();
 export type StorageReader = typeof StorageReader.Identifier;

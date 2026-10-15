@@ -46,6 +46,16 @@ it.effect(
         `${directory}/confect/_generated/services.ts`,
       );
       expect(services).not.toContain("Auth");
+      expect(services).not.toContain("export const Storage =");
+      expect(services).toContain(
+        "StorageReader_.StorageReader.forScope<typeof scope>()",
+      );
+      expect(services).toContain(
+        "StorageWriter_.StorageWriter.forScope<typeof scope>()",
+      );
+      expect(services).toContain(
+        "StorageActionWriter_.StorageActionWriter.forScope<typeof scope>()",
+      );
       expect(services).toContain("Scheduler_.forScope<typeof scope>()");
       expect(services).toContain("MutationCtx_.MutationCtx<");
       const contract = yield* fs.readFileString(

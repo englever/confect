@@ -94,7 +94,7 @@ export default Table.make(() =>
 
 `Component.id` also supports `_storage` and `_scheduled_functions` for generated contracts. Use `Component.schema(counter, exportedCodec)` to rebind IDs inside a codec exported by the component, including nested objects and arrays.
 
-Scopes change TypeScript identity and validator selection, not ID strings. Deeply nested installations can lose compile-time ID separation. IDs owned by the current database compile to `v.id(tableName)`; IDs from another database compile to `v.string()`. A foreign ID field therefore does not validate ownership at runtime. Validate untrusted references through the owning component and perform authorization in your application.
+Scopes change TypeScript identity and validator selection, not ID strings. At four mount levels, such as `left/deep/child/child`, installations can lose compile-time ID separation. IDs owned by the current database compile to `v.id(tableName)`; IDs from another database compile to `v.string()`. A foreign ID field therefore does not validate ownership at runtime. Validate untrusted references through the owning component and perform authorization in your application.
 
 <Warning>
   Keep the generated registry's literal mount names. Widening a component API to
@@ -154,7 +154,7 @@ Scope parameters accept the branded `IdScope.IdScope` type, not raw strings. Pre
 Keep using `FunctionImpl.make(databaseSchema, group, name, handler)` with the generated schema. The schema determines the available services:
 
 - Database operations address the component's database, with scoped document IDs.
-- Storage and scheduling services return IDs in that same component scope.
+- `StorageReader`, `StorageWriter`, `StorageActionWriter`, and `Scheduler` use IDs in that same component scope. The unified `Storage` service is application-only.
 - Generated raw contexts preserve scoped ID types and omit `auth`.
 - Application `Auth` is unavailable. Pass the identity information your component needs explicitly in function arguments.
 
