@@ -76,6 +76,27 @@ export declare const api: {
         string | null
       >;
     };
+    componentAuthoring: {
+      probe: FunctionReference<
+        "query",
+        "public",
+        { value: string },
+        { value: string }
+      >;
+      read: FunctionReference<
+        "query",
+        "public",
+        { id: string },
+        { scheduled: string; storage: string }
+      >;
+      render: FunctionReference<"query", "public", { value: string }, string>;
+      save: FunctionReference<
+        "mutation",
+        "public",
+        { scheduled: string; storage: string },
+        string
+      >;
+    };
     components: {
       cancel: FunctionReference<"mutation", "public", { id: string }, null>;
       declaredError: FunctionReference<

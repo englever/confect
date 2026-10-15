@@ -6,6 +6,8 @@ import counterConvexSchema from "../local-backend/fixtures/components/counter/co
 import innerConvexSchema from "../local-backend/fixtures/components/inner/convex/schema";
 import middleConvexSchema from "../local-backend/fixtures/components/middle/convex/schema";
 import parentConvexSchema from "../local-backend/fixtures/components/parent/convex/schema";
+import type { ClassProbe } from "../local-backend/fixtures/components/counter/confect/authoring.spec";
+import hostRefs from "../local-backend/fixtures/confect/_generated/refs";
 import { Rejected as CounterRejected } from "../local-backend/fixtures/components/counter/confect/counter.spec";
 import localConvexSchema from "../local-backend/fixtures/confect/_generated/convexSchema";
 import localRefs from "../local-backend/fixtures/confect/_generated/refs";
@@ -65,7 +67,11 @@ const first = Component.bind(contract, components.first);
 const second = Component.bind(contract, components.second);
 const hostSchema = DatabaseSchema.make({});
 const hostConvexSchema = defineSchema({});
-const hostModules = { "_generated/server.ts": () => Promise.resolve({}) };
+const hostModules = {
+  "_generated/server.ts": () => Promise.resolve({}),
+  "groups/componentAuthoring.ts": () =>
+    import("../local-backend/fixtures/convex/groups/componentAuthoring"),
+};
 const componentModules = {
   "_generated/server.ts": () => Promise.resolve({}),
   "counter.ts": () =>
@@ -194,6 +200,32 @@ const registerGraph = Effect.gen(function* () {
   }
   return t;
 });
+
+it.effect("keeps nominal class methods after component and host decoding", () =>
+  Effect.gen(function* () {
+    const t = yield* registerGraph;
+    const own: ClassProbe = yield* t.query(mounts.first.authoring.probe, {
+      value: "component",
+    });
+    const host: ClassProbe = yield* t.query(
+      hostRefs.public.groups.componentAuthoring.probe,
+      { value: "host" },
+    );
+    expect([own.render(), host.render()]).toEqual([
+      "class:component",
+      "class:host",
+    ]);
+    expect(
+      yield* t.query(hostRefs.public.groups.componentAuthoring.render, {
+        value: "shared",
+      }),
+    ).toBe("class:shared");
+  }).pipe(
+    Effect.provide(
+      TestConfect.layer(hostSchema, hostConvexSchema, hostModules),
+    ),
+  ),
+);
 
 it.effect(
   "isolates two installations through three nested child bindings",

@@ -11,6 +11,12 @@ export const CounterApi = HttpApi.make("counter").add(
     HttpApiEndpoint.get("health", "/health", { success: Text }),
     HttpApiEndpoint.post("echo", "/echo", { payload: Text, success: Text }),
   ),
+  HttpApiGroup.make("authoring").add(
+    HttpApiEndpoint.get("classProbe", "/class-probe/:value", {
+      params: Schema.Struct({ value: Schema.String }),
+      success: Text,
+    }),
+  ),
   HttpApiGroup.make("users").add(
     HttpApiEndpoint.get("get", "/members/:id", {
       params: Schema.Struct({ id: Schema.String }),

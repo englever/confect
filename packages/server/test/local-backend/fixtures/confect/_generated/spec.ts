@@ -2,6 +2,7 @@ import { GroupSpec, Spec } from "@confect/core";
 import groups_cacheControl from "../groups/cacheControl.spec";
 import groups_cacheStubbed from "../groups/cacheStubbed.spec";
 import groups_callbacks from "../groups/callbacks.spec";
+import groups_componentAuthoring from "../groups/componentAuthoring.spec";
 import groups_components from "../groups/components.spec";
 import groups_metadata from "../groups/metadata.spec";
 import groups_nativeComponents from "../groups/nativeComponents.spec";
@@ -11,8 +12,8 @@ import groups_transactions from "../groups/transactions.spec";
 import metadataNode from "../metadataNode.spec";
 
 const spec: Spec.Spec<{
-  readonly groups: GroupSpec.NamedAt<GroupSpec.GroupSpec<"Convex", "groups", never, GroupSpec.NamedAt<typeof groups_cacheControl, "cacheControl"> | GroupSpec.NamedAt<typeof groups_cacheStubbed, "cacheStubbed"> | GroupSpec.NamedAt<typeof groups_callbacks, "callbacks"> | GroupSpec.NamedAt<typeof groups_components, "components"> | GroupSpec.NamedAt<typeof groups_metadata, "metadata"> | GroupSpec.NamedAt<typeof groups_nativeComponents, "nativeComponents"> | GroupSpec.NamedAt<typeof groups_scheduling, "scheduling"> | GroupSpec.NamedAt<typeof groups_storage, "storage"> | GroupSpec.NamedAt<typeof groups_transactions, "transactions">>, "groups">;
+  readonly groups: GroupSpec.NamedAt<GroupSpec.GroupSpec<"Convex", "groups", never, GroupSpec.NamedAt<typeof groups_cacheControl, "cacheControl"> | GroupSpec.NamedAt<typeof groups_cacheStubbed, "cacheStubbed"> | GroupSpec.NamedAt<typeof groups_callbacks, "callbacks"> | GroupSpec.NamedAt<typeof groups_componentAuthoring, "componentAuthoring"> | GroupSpec.NamedAt<typeof groups_components, "components"> | GroupSpec.NamedAt<typeof groups_metadata, "metadata"> | GroupSpec.NamedAt<typeof groups_nativeComponents, "nativeComponents"> | GroupSpec.NamedAt<typeof groups_scheduling, "scheduling"> | GroupSpec.NamedAt<typeof groups_storage, "storage"> | GroupSpec.NamedAt<typeof groups_transactions, "transactions">>, "groups">;
   readonly metadataNode: GroupSpec.NamedAt<typeof metadataNode, "metadataNode">;
-}> = (Spec.make() as any).addAt("groups", (GroupSpec.makeAt("groups") as any).addGroupAt("cacheControl", (groups_cacheControl as any)).addGroupAt("cacheStubbed", (groups_cacheStubbed as any)).addGroupAt("callbacks", (groups_callbacks as any)).addGroupAt("components", (groups_components as any)).addGroupAt("metadata", (groups_metadata as any)).addGroupAt("nativeComponents", (groups_nativeComponents as any)).addGroupAt("scheduling", (groups_scheduling as any)).addGroupAt("storage", (groups_storage as any)).addGroupAt("transactions", (groups_transactions as any))).addAt("metadataNode", (metadataNode as any));
+}> = (Spec.make() as any).addAt("groups", (GroupSpec.makeAt("groups") as any).addGroupAt("cacheControl", (groups_cacheControl as any)).addGroupAt("cacheStubbed", (groups_cacheStubbed as any)).addGroupAt("callbacks", (groups_callbacks as any)).addGroupAt("componentAuthoring", (groups_componentAuthoring as any)).addGroupAt("components", (groups_components as any)).addGroupAt("metadata", (groups_metadata as any)).addGroupAt("nativeComponents", (groups_nativeComponents as any)).addGroupAt("scheduling", (groups_scheduling as any)).addGroupAt("storage", (groups_storage as any)).addGroupAt("transactions", (groups_transactions as any))).addAt("metadataNode", (metadataNode as any));
 
 export default spec;
