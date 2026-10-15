@@ -44,7 +44,31 @@ export class LocalBackendError extends Schema.TaggedError<LocalBackendError>()(
     ]),
     exitCode: Schema.optionalKey(Schema.Finite),
   },
-) {}
+) {
+  override get message() {
+    const subject = `Local backend for ${this.deploymentName}`;
+    switch (this.reason) {
+      case "configuration":
+        return `${subject} needs a home directory and, when set, CONFECT_LOCAL_BACKEND_PORTS as a range such as 3300-3399`;
+      case "filesystem":
+        return `${subject} could not read or write its data directory`;
+      case "install":
+        return `${subject} could not download or install the backend binary`;
+      case "identity":
+        return `${subject} could not read, create, or save its identity`;
+      case "ports":
+        return `${subject} could not get its ports; another process is using them`;
+      case "running":
+        return `${subject} is already running in another session over its data directory`;
+      case "spawn":
+        return `${subject} could not be started`;
+      case "exit":
+        return `${subject} exited${this.exitCode === undefined ? "" : ` with code ${this.exitCode}`} before it was ready`;
+      case "timeout":
+        return `${subject} did not become ready in time`;
+    }
+  }
+}
 
 export interface LocalBackend {
   readonly url: string;

@@ -17,7 +17,18 @@ export class PushLockError extends Schema.TaggedError<PushLockError>()(
     deploymentName: Schema.String,
     reason: Schema.Literals(["configuration", "timeout", "filesystem"]),
   },
-) {}
+) {
+  override get message() {
+    switch (this.reason) {
+      case "configuration":
+        return `Push lock for ${this.deploymentName} needs a home directory to keep its lock file in`;
+      case "timeout":
+        return `Timed out waiting for another push to ${this.deploymentName} to release its push lock`;
+      case "filesystem":
+        return `Push lock for ${this.deploymentName} could not read or write its lock file`;
+    }
+  }
+}
 
 /**
  * Serialises pushes per deployment. Overlapping `convex deploy` runs against
