@@ -3,6 +3,8 @@ import { isResolved } from "alchemy/Diff";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
@@ -11,8 +13,6 @@ import type { Providers } from "./Providers";
 import { resourceName } from "./internal/ResourceIdentity";
 import { checkpointCreate } from "./internal/Lifecycle";
 import { adminKey, dataDirectories } from "./internal/LocalBackend";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 
 export interface DeployKeyProps {
   readonly deploymentName: string;

@@ -28,6 +28,7 @@ export class LocalBackendError extends Schema.TaggedError<LocalBackendError>()(
     deploymentName: Schema.String,
     reason: Schema.Literals([
       "configuration",
+      "filesystem",
       "install",
       "identity",
       "ports",
@@ -167,7 +168,7 @@ export const remove = Effect.fn("LocalBackend.remove")(function* (
     .remove(directory, { recursive: true, force: true })
     .pipe(
       Effect.mapError(
-        () => new LocalBackendError({ deploymentName, reason: "identity" }),
+        () => new LocalBackendError({ deploymentName, reason: "filesystem" }),
       ),
     );
 });

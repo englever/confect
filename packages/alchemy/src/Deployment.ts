@@ -16,12 +16,7 @@ import { ConvexClient } from "./ConvexClient";
 import type { Providers } from "./Providers";
 import { resourceName } from "./internal/ResourceIdentity";
 import { checkpointCreate, shouldAdopt } from "./internal/Lifecycle";
-import {
-  backendVersion,
-  boot,
-  dataDirectories,
-  remove,
-} from "./internal/LocalBackend";
+import { boot, dataDirectories, remove } from "./internal/LocalBackend";
 
 export interface DeploymentProps {
   readonly projectId: number;
@@ -214,7 +209,6 @@ export const provider = Effect.gen(function* () {
 
 interface LocalConfig {
   readonly name: string;
-  readonly version: string;
   readonly props: DeploymentProps;
 }
 
@@ -243,7 +237,6 @@ export const localLayer = LocalProvider.make(
       }) {
         return {
           name: yield* resourceName("deployment", fqn, instanceId),
-          version: backendVersion,
           props: news,
         } satisfies LocalConfig;
       }),
