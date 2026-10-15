@@ -290,6 +290,23 @@ describe("LocalBackend", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.live("reports exited once a closed session has stopped its backend", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fake = fakeBackend();
+      const { directory, run } = yield* harness(fake);
+      const session = yield* Scope.make();
+      const backend = yield* run(boot(name, directory)).pipe(
+        Scope.provide(session),
+      );
+      yield* Scope.close(session, Exit.void);
+      yield* backend.exited.pipe(Effect.timeout("1 second"));
+      expect(fake.served[0].running()).toBe(false);
+      expect(yield* fs.exists(path.join(directory, "owner.lock"))).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.live(
     "stops the backend and releases its data when interrupted before it is ready",
     () =>
