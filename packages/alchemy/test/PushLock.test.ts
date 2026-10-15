@@ -18,6 +18,7 @@ import {
   PushLockError,
   layer as lockLayer,
 } from "../src/internal/PushLock";
+import { deadPid } from "./fixtures/Processes";
 
 const serialize = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -51,19 +52,6 @@ const withHome = <A, E, R>(
       ),
     );
   });
-
-const deadPid = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const handle = yield* spawner.spawn(
-    ChildProcess.make(process.execPath, ["-e", ""], {
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "ignore",
-    }),
-  );
-  yield* handle.exitCode;
-  return Number(handle.pid);
-}).pipe(Effect.scoped);
 
 const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(

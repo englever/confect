@@ -10,6 +10,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import { createServer, type Server } from "node:net";
 import {
   backendVersion,
@@ -33,7 +34,10 @@ const occupy = (port: number) =>
       }),
   );
 
-const harness = (fake: ReturnType<typeof fakeBackend>) =>
+const harness = (
+  fake: ReturnType<typeof fakeBackend>,
+  options?: { readonly ports?: string | undefined },
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -51,7 +55,11 @@ const harness = (fake: ReturnType<typeof fakeBackend>) =>
               ConfigProvider.fromUnknown({
                 HOME: home,
                 LOCALAPPDATA: home,
-                CONFECT_LOCAL_BACKEND_PORTS: "3350-3359",
+                ...(options !== undefined && "ports" in options
+                  ? options.ports === undefined
+                    ? {}
+                    : { CONFECT_LOCAL_BACKEND_PORTS: options.ports }
+                  : { CONFECT_LOCAL_BACKEND_PORTS: "3350-3359" }),
               }),
             ),
           ),
@@ -215,6 +223,91 @@ describe("LocalBackend", () => {
       );
       expect(fake.served).toHaveLength(1);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("picks two free loopback ports when no range is configured", () =>
+    Effect.gen(function* () {
+      const fake = fakeBackend();
+      const { directory, run } = yield* harness(fake, { ports: undefined });
+      const backend = yield* run(boot(name, directory));
+      expect(backend.url).toMatch(/^http:\/\/127\.0\.0\.1:[0-9]+$/);
+      expect(backend.siteUrl).toMatch(/^http:\/\/127\.0\.0\.1:[0-9]+$/);
+      expect(backend.siteUrl).not.toBe(backend.url);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "starts again in the same session after a failed start, on fresh ports",
+    () =>
+      Effect.gen(function* () {
+        const fake = fakeBackend({ exitCode: 3 });
+        const { directory, run } = yield* harness(fake);
+        // Alchemy keeps the instance scope of a failed start open.
+        const session = yield* Scope.make();
+        expect(
+          yield* run(boot(name, directory)).pipe(
+            Scope.provide(session),
+            Effect.result,
+          ),
+        ).toEqual(
+          Result.fail(
+            new LocalBackendError({
+              deploymentName: name,
+              reason: "exit",
+              exitCode: 3,
+            }),
+          ),
+        );
+        const tried = fake.attempts[0];
+        const triedPort = Number(tried[tried.indexOf("--port") + 1]);
+        yield* occupy(triedPort);
+        fake.behaviour.exitCode = undefined;
+        const backend = yield* run(boot(name, directory)).pipe(
+          Scope.provide(session),
+        );
+        expect(port(backend.url)).not.toBe(triedPort);
+        yield* Scope.close(session, Exit.void);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("starts again in the same session after its backend exits", () =>
+    Effect.gen(function* () {
+      const fake = fakeBackend();
+      const { directory, run } = yield* harness(fake);
+      const session = yield* Scope.make();
+      const first = yield* run(boot(name, directory)).pipe(
+        Scope.provide(session),
+      );
+      yield* fake.served[0].exit(1);
+      yield* first.exited;
+      const restarted = yield* run(boot(name, directory)).pipe(
+        Scope.provide(session),
+      );
+      expect(restarted.url).toBe(first.url);
+      expect(fake.served).toHaveLength(2);
+      yield* Scope.close(session, Exit.void);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "stops the backend and releases its data when interrupted before it is ready",
+    () =>
+      Effect.gen(function* () {
+        const fake = fakeBackend({ silent: true });
+        const { directory, run } = yield* harness(fake);
+        const session = yield* Scope.make();
+        const starting = yield* run(boot(name, directory)).pipe(
+          Scope.provide(session),
+          Effect.forkChild,
+        );
+        while (fake.served.length === 0) yield* Effect.sleep("10 millis");
+        yield* Fiber.interrupt(starting);
+        expect(fake.served[0].running()).toBe(false);
+        fake.behaviour.silent = false;
+        yield* run(boot(name, directory)).pipe(Scope.provide(session));
+        expect(fake.served).toHaveLength(2);
+        yield* Scope.close(session, Exit.void);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it("says why a backend could not start", () => {

@@ -18,19 +18,43 @@ export const backendArchive = Buffer.from(
 export interface ServedBackend {
   readonly args: ReadonlyArray<string>;
   readonly running: () => boolean;
+  /**
+   * Stop answering and exit with `code`, as a crashed backend would.
+   */
+  readonly exit: (code: number) => Effect.Effect<void>;
+}
+
+export interface FakeBehaviour {
+  /**
+   * Exit with this code at once instead of serving.
+   */
+  exitCode: number | undefined;
+  /**
+   * Answer `/instance_name` with this name instead of the backend's own.
+   */
+  answerAs: string | undefined;
+  /**
+   * Serve without ever answering, as a backend stuck before readiness.
+   */
+  silent: boolean;
 }
 
 /**
  * Stands in for the backend binary and the network. `keygen` prints a fresh
  * admin key per call; a served backend answers `/instance_name` on its port
  * until its scope closes; `answers` lets a test put another program on a port.
- * Node commands (codegen, `convex deploy`) succeed and record the push target.
+ * `behaviour` can change between boots, and `attempts` records the arguments of
+ * every backend start, served or not. Node commands (codegen, `convex deploy`)
+ * succeed and record the push target.
  */
-export const fakeBackend = (options?: {
-  readonly exitCode?: number;
-  readonly answerAs?: string;
-}) => {
+export const fakeBackend = (options?: Partial<FakeBehaviour>) => {
+  const behaviour: FakeBehaviour = {
+    exitCode: options?.exitCode,
+    answerAs: options?.answerAs,
+    silent: options?.silent ?? false,
+  };
   const served: ServedBackend[] = [];
+  const attempts: Array<ReadonlyArray<string>> = [];
   const pushes: string[] = [];
   const downloads: string[] = [];
   const answers = new Map<string, string>();
@@ -62,22 +86,38 @@ export const fakeBackend = (options?: {
               new TextEncoder().encode(`${name}|0a1b2c${keys}\n`),
             );
             yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
-          } else if (options?.exitCode !== undefined) {
+          } else if (behaviour.exitCode !== undefined) {
+            attempts.push(args);
             yield* Deferred.succeed(
               exited,
-              ChildProcessSpawner.ExitCode(options.exitCode),
+              ChildProcessSpawner.ExitCode(behaviour.exitCode),
             );
           } else {
+            attempts.push(args);
             const origin = args[args.indexOf("--convex-origin") + 1];
-            answers.set(
-              origin,
-              options?.answerAs ?? args[args.indexOf("--instance-name") + 1],
-            );
+            if (!behaviour.silent)
+              answers.set(
+                origin,
+                behaviour.answerAs ?? args[args.indexOf("--instance-name") + 1],
+              );
             let running = true;
-            served.push({ args, running: () => running });
             stop = Effect.sync(() => {
               running = false;
               answers.delete(origin);
+            });
+            served.push({
+              args,
+              running: () => running,
+              exit: (code) =>
+                stop.pipe(
+                  Effect.andThen(
+                    Deferred.succeed(
+                      exited,
+                      ChildProcessSpawner.ExitCode(code),
+                    ),
+                  ),
+                  Effect.asVoid,
+                ),
             });
             yield* Effect.addFinalizer(() =>
               stop.pipe(
@@ -134,6 +174,8 @@ export const fakeBackend = (options?: {
   );
   return {
     layer: Layer.mergeAll(spawner, http),
+    behaviour,
+    attempts,
     served,
     pushes,
     downloads,
