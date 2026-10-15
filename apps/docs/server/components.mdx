@@ -276,14 +276,25 @@ const send = Effect.gen(function* () {
 });
 ```
 
-`Callback.create` checks the reference against the contract at compile time. It compares what crosses the wire:
+`Callback.create` checks the reference against the contract twice: its types at compile time, and the validators Convex compiles for both when the host creates the handle. The validator check is the guarantee. The type check catches the common mistakes where you write the call.
+
+At compile time it compares the types that cross the wire:
 
 - The function type: a query cannot stand in for a mutation contract.
-- Args: the host's encoded args must equal the encoded args the component sends, with IDs compared as strings. Convex's validator rejects any field the host does not declare, so a host that accepts wider args is refused too. Reuse the contract's schemas, which the component exports with the contract.
-- Returns and errors: the host's encoded returns and errors must decode with the contract's codecs. A host that returns `Schema.Finite` (a number on the wire) does not satisfy a contract that returns `Schema.FiniteFromString` (a string on the wire), even though both decode to `number`. This covers errors from the host function's middleware too.
-- Errors: the host must not fail with errors the contract does not declare.
+- Args and returns: the host's encoded args and returns must equal the contract's, with a component's IDs compared as strings. Convex's validator rejects any field the host does not declare, so a host that accepts wider args is refused too. A host that returns `Schema.Finite` (a number on the wire) does not satisfy a contract that returns `Schema.FiniteFromString` (a string on the wire), even though both decode to `number`. Reuse the contract's schemas, which the component exports with the contract.
+- Errors: the host must not fail with errors the contract does not declare, and its errors, including those of its middleware, must decode with the contract's codecs.
 
-When a check fails, the compiler error names the first mismatch, for example `the ref's encoded args differ from the args "email/onEvent" sends`. Because IDs compare as strings, the host may type an ID the component sends with `Component.id`. Internal and public references both satisfy a contract. Pass the host's generated reference: a reference typed from values alone, such as a bound component's reference or a parameter annotated `Ref.Ref`, has no codecs left to compare and is refused.
+When a check fails, the compiler error names the first mismatch, for example `the ref's encoded args differ from the args "email/onEvent" sends`. Because a component's IDs compare as strings, the host may type an ID the component sends with `Component.id`. An ID of one of the host's own tables is not a string: the host's validator accepts only IDs of that table. Internal and public references both satisfy a contract. Pass the host's generated reference: a reference typed from values alone, such as a bound component's reference or a parameter annotated `Ref.Ref`, has no codecs left to compare and is refused, as is a reference built with middleware attachments typed without their middleware.
+
+Before it asks Convex for a handle, `Callback.create` compiles the contract's and the reference's args, returns and errors to Convex validators and compares them. Args and returns must compile to the same validators, with union members in any order. Every error the host may fail with must compile to one the contract declares. A difference fails the effect with `CallbackContractMismatch`, whose message names the side and both validators:
+
+```text
+The host function does not satisfy callback contract "email/onEvent": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.
+```
+
+This catches what the types cannot show, such as field names hidden behind a `Record` type. A mismatch is a wiring mistake, so most hosts let it fail the function with `Effect.orDie`. A plain Convex reference (`Ref.fromFunctionReference`) carries no codecs, so only the compile-time check applies to it.
+
+Validators do not capture everything a codec does. Tuples with the same elements in another order compile to the same validator, and so do `Schema.DateFromString` and `Schema.DurationFromString` (both `v.string()`). The compile-time check still compares tuples by position. Codecs that differ only in how they decode are not checked at all.
 
 A package that wraps its component in a client can accept the host's reference and create the handle itself. Forward the reference's type to keep the check at the caller:
 
