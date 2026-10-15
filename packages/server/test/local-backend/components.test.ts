@@ -1,4 +1,6 @@
-import type { Ref } from "@confect/core";
+import { Ref } from "@confect/core";
+import type { ClassProbe } from "./fixtures/components/counter/confect/authoring.spec";
+import refs from "./fixtures/confect/_generated/refs";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import { expect, expectTypeOf, layer } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -62,6 +64,77 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
           right: [13],
           rejectedId: expect.any(String),
         });
+      }),
+  );
+
+  it.effect(
+    "round-trips generated system IDs stored in a component table",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const uploadUrl = yield* Effect.promise(() =>
+          client.mutation(api.groups.components.uploadUrl, {}),
+        );
+        const uploaded = yield* HttpClient.post(uploadUrl, {
+          body: HttpBody.text("stored system id"),
+        }).pipe(
+          Effect.flatMap(HttpClientResponse.filterStatusOk),
+          Effect.flatMap(
+            HttpClientResponse.schemaBodyJson(
+              Schema.Struct({ storageId: Schema.String }),
+            ),
+          ),
+        );
+        const scheduled = yield* Effect.promise(() =>
+          client.mutation(api.groups.components.schedule, {
+            run: "system-id-proof",
+          }),
+        );
+        const ids = { storage: uploaded.storageId, scheduled };
+        const id = yield* Effect.promise(() =>
+          client.mutation(api.groups.componentAuthoring.save, ids),
+        );
+        expect(
+          yield* Effect.promise(() =>
+            client.query(api.groups.componentAuthoring.read, { id }),
+          ),
+        ).toEqual(ids);
+      }),
+  );
+
+  it.effect(
+    "decodes an id-free class through its host schema and shared HTTP handler",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const result = yield* Effect.promise(() =>
+          client.query(api.groups.componentAuthoring.render, {
+            value: "backend",
+          }),
+        );
+        expect(result).toBe("class:backend");
+        const wire = yield* Effect.promise(() =>
+          client.query(api.groups.componentAuthoring.probe, {
+            value: "schema",
+          }),
+        );
+        const decoded: ClassProbe = Ref.decodeReturnsSync(
+          refs.public.groups.componentAuthoring.probe,
+          wire,
+        );
+        expect(decoded.render()).toBe("class:schema");
+        for (const path of [
+          "/first/class-probe/http",
+          "/component-class-probe/http",
+        ]) {
+          const body = yield* HttpClient.get(
+            `http://127.0.0.1:3211${path}`,
+          ).pipe(
+            Effect.flatMap(HttpClientResponse.filterStatusOk),
+            Effect.flatMap((response) => response.text),
+          );
+          expect(body).toBe("class:http");
+        }
       }),
   );
 

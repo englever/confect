@@ -31,6 +31,27 @@ export declare const api: {
       confectWithRawDateNow: FunctionReference<"query", "public", {}, number>;
       confectWithSpan: FunctionReference<"query", "public", {}, number>;
     };
+    componentAuthoring: {
+      probe: FunctionReference<
+        "query",
+        "public",
+        { value: string },
+        { value: string }
+      >;
+      read: FunctionReference<
+        "query",
+        "public",
+        { id: string },
+        { scheduled: string; storage: string }
+      >;
+      render: FunctionReference<"query", "public", { value: string }, string>;
+      save: FunctionReference<
+        "mutation",
+        "public",
+        { scheduled: string; storage: string },
+        string
+      >;
+    };
     components: {
       declaredError: FunctionReference<
         "mutation",

@@ -4,11 +4,22 @@ import * as Schema from "effect/Schema";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint";
+import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
+import { classProbeHandler } from "../components/counter/confect/authoringHandler";
+import { first } from "./componentBindings";
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup";
 import * as Layer from "effect/Layer";
 import { ExecutionMetadata, RequestMetadata } from "./_generated/services";
 
 const HostApi = HttpApi.make("host")
+  .add(
+    HttpApiGroup.make("componentAuthoring").add(
+      HttpApiEndpoint.get("classProbe", "/component-class-probe/:value", {
+        params: Schema.Struct({ value: Schema.String }),
+        success: Schema.String.pipe(HttpApiSchema.asText()),
+      }),
+    ),
+  )
   .add(
     HttpApiGroup.make("users").add(
       HttpApiEndpoint.get("get", "/users/:id", {
@@ -50,7 +61,16 @@ const metadata = HttpApiBuilder.group(HostApi, "metadata", (handle) =>
   ),
 );
 
+const componentAuthoring = HttpApiBuilder.group(
+  HostApi,
+  "componentAuthoring",
+  (handle) =>
+    handle.handle("classProbe", ({ params }) =>
+      classProbeHandler(first.authoring.probe, params.value),
+    ),
+);
+
 export default Http.make({
   api: HostApi,
-  handlers: Layer.mergeAll(users, metadata),
+  handlers: Layer.mergeAll(users, metadata, componentAuthoring),
 });

@@ -3,7 +3,7 @@ import type { SystemTableNames } from "convex/server";
 
 export const scope = IdScope.component("@confect/server-local-backend-fixtures:components/counter/convex");
 export const target = { kind: "component", scope } as const;
-export type TableNames = "counters";
+export type TableNames = "counters" | "systemIds";
 
 export type Id<TableName extends TableNames | SystemTableNames> = GenericId.GenericId<TableName, typeof scope>;
 

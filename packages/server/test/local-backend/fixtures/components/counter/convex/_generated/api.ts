@@ -21,6 +21,26 @@ import { anyApi, componentsGeneric } from "convex/server";
  * ```
  */
 export const api: {
+  authoring: {
+    probe: FunctionReference<
+      "query",
+      "public",
+      { value: string },
+      { value: string }
+    >;
+    read: FunctionReference<
+      "query",
+      "public",
+      { id: Id<"systemIds"> },
+      { scheduled: Id<"_scheduled_functions">; storage: Id<"_storage"> }
+    >;
+    save: FunctionReference<
+      "mutation",
+      "public",
+      { scheduled: Id<"_scheduled_functions">; storage: Id<"_storage"> },
+      Id<"systemIds">
+    >;
+  };
   counter: {
     create: FunctionReference<
       "mutation",
