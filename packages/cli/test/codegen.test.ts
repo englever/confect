@@ -484,12 +484,11 @@ import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint";
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup";
-import app from "./app";
 const Api = HttpApi.make("host").add(
   HttpApiGroup.make("meta").add(HttpApiEndpoint.get("status", ${JSON.stringify(routePath)}, { success: Schema.String })),
 );
 const handlers = HttpApiBuilder.group(Api, "meta", (h) => h.handle("status", () => Effect.succeed("ok")));
-export default Http.make(app, { api: Api, handlers });
+export default Http.make({ api: Api, handlers });
 `;
   yield* project.write("confect/http.ts", http("/status"));
   const run = codegenHandler.pipe(

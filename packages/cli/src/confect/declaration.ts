@@ -300,10 +300,10 @@ export const syncDeclaredHttp = Effect.fnUntraced(function* (app: App.Any) {
   if (!Http.isHttp(http)) {
     return yield* new InvalidDeclarationError({
       declarationPath: "confect/http.ts",
-      reason: "it must default-export Http.make(app, ...).",
+      reason: "it must default-export Http.make(...).",
     });
   }
-  yield* Http.routes(http).pipe(
+  yield* Http.routes(app, http).pipe(
     Result.mapError(invalid("http.ts")),
     Effect.fromResult,
   );

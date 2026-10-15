@@ -14,27 +14,26 @@ const TypeId = "~@confect/core/Http";
  * A backend's HTTP declaration: the app's own `HttpApi`, its handlers, and an
  * optional Scalar docs path. `routes` is the layer the generated
  * `convex/http.ts` serves. Mounted components serve their own routes.
+ *
+ * It does not reference `confect/app.ts`: `http.ts` runs in every HTTP action,
+ * and `app.ts` imports component definitions that only load in Convex's config
+ * analysis. Codegen checks these routes against the app's mounts.
  */
-export interface Http<
-  A extends App.Any,
-  Api extends App.Api,
-  Routes extends Layer.Any,
-> {
+export interface Http<Api extends App.Api, Routes extends Layer.Any> {
   readonly [TypeId]: typeof TypeId;
-  readonly app: A;
   readonly api: Api;
   readonly docs: `/${string}` | undefined;
   readonly routes: Routes;
 }
 
-export type Any = Http<App.Any, App.Api, Layer.Any>;
+export type Any = Http<App.Api, Layer.Any>;
 
 /**
  * Declare the backend's HTTP API, in `confect/http.ts`. Every route is an
  * `HttpApi` endpoint. `docs` serves a Scalar page for the api at that path.
  *
  * ```ts
- * export default Http.make(app, {
+ * export default Http.make({
  *   api: TenantApi,
  *   handlers: TenantHandlers,
  *   docs: "/docs",
@@ -42,22 +41,14 @@ export type Any = Http<App.Any, App.Api, Layer.Any>;
  * ```
  */
 export const make = <
-  A extends App.Any,
   Id extends string,
   Groups extends HttpApiGroup.Constraint,
   R,
->(
-  app: A,
-  options: {
-    readonly api: HttpApi.HttpApi<Id, Groups>;
-    readonly handlers: Layer.Layer<
-      HttpApiGroup.ToService<Id, Groups>,
-      never,
-      R
-    >;
-    readonly docs?: `/${string}`;
-  },
-) => {
+>(options: {
+  readonly api: HttpApi.HttpApi<Id, Groups>;
+  readonly handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>;
+  readonly docs?: `/${string}`;
+}) => {
   const api = HttpApiBuilder.layer(options.api).pipe(
     Layer.provide(options.handlers),
   );
@@ -68,9 +59,8 @@ export const make = <
           api,
           HttpApiScalar.layerCdn(options.api, { path: options.docs }),
         );
-  const http: Http<A, HttpApi.HttpApi<Id, Groups>, typeof routes> = {
+  const http: Http<HttpApi.HttpApi<Id, Groups>, typeof routes> = {
     [TypeId]: TypeId,
-    app,
     api: options.api,
     docs: options.docs,
     routes,
@@ -171,9 +161,9 @@ const routeKey = (route: Route): string =>
  * when two mount prefixes overlap.
  */
 export const routes = (
-  declaration: App.Any | Any,
+  app: App.Any,
+  http?: Any,
 ): Result.Result<ReadonlyArray<Route>, RouteError> => {
-  const app = isHttp(declaration) ? declaration.app : declaration;
   const mounts = App.mounts(app).flatMap(({ name, httpPrefix, api }) =>
     httpPrefix === undefined
       ? []
@@ -196,20 +186,21 @@ export const routes = (
     }
   }
 
-  const own: ReadonlyArray<Route> = isHttp(declaration)
-    ? [
-        ...apiRoutes(declaration.api, "", { kind: "app" }),
-        ...(declaration.docs === undefined
-          ? []
-          : [
-              {
-                method: "GET",
-                path: declaration.docs,
-                owner: { kind: "docs" } as const,
-              },
-            ]),
-      ]
-    : [];
+  const own: ReadonlyArray<Route> =
+    http === undefined
+      ? []
+      : [
+          ...apiRoutes(http.api, "", { kind: "app" }),
+          ...(http.docs === undefined
+            ? []
+            : [
+                {
+                  method: "GET",
+                  path: http.docs,
+                  owner: { kind: "docs" } as const,
+                },
+              ]),
+        ];
 
   for (const route of own) {
     const mount = mounts.find(({ httpPrefix }) =>

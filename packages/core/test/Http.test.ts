@@ -43,7 +43,7 @@ const handlers = (api: ReturnType<typeof hostApi>) =>
 
 const declare = (path: `/${string}`, docs?: `/${string}`) => {
   const api = hostApi(path);
-  return Http.make(app, {
+  return Http.make({
     api,
     handlers: handlers(api),
     ...(docs === undefined ? {} : { docs }),
@@ -52,7 +52,7 @@ const declare = (path: `/${string}`, docs?: `/${string}`) => {
 
 describe("Http", () => {
   it("lists the app's routes and each mount's prefixed routes", () => {
-    expect(Http.routes(declare("/context-metadata", "/docs"))).toEqual(
+    expect(Http.routes(app, declare("/context-metadata", "/docs"))).toEqual(
       Result.succeed([
         { method: "GET", path: "/context-metadata", owner: { kind: "app" } },
         { method: "GET", path: "/docs", owner: { kind: "docs" } },
@@ -82,7 +82,7 @@ describe("Http", () => {
 
   it("rejects an app route at or under a mount prefix", () => {
     for (const path of ["/first", "/first/", "/first/status"] as const) {
-      expect(Http.routes(declare(path))).toEqual(
+      expect(Http.routes(app, declare(path))).toEqual(
         Result.fail(
           new Http.RouteUnderMountPrefix({
             method: "GET",
@@ -93,11 +93,11 @@ describe("Http", () => {
         ),
       );
     }
-    expect(Result.isSuccess(Http.routes(declare("/firstly")))).toBe(true);
+    expect(Result.isSuccess(Http.routes(app, declare("/firstly")))).toBe(true);
   });
 
   it("rejects the docs page under a mount prefix", () => {
-    expect(Http.routes(declare("/meta", "/second/docs"))).toEqual(
+    expect(Http.routes(app, declare("/meta", "/second/docs"))).toEqual(
       Result.fail(
         new Http.RouteUnderMountPrefix({
           method: "GET",
