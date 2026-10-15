@@ -236,6 +236,9 @@ layer(NodeServices.layer, { excludeTestServices: true })(
             fs.readFileString(path.join(project.root, file));
           const watching = yield* project.start("dev");
           yield* watching.waitFor(success);
+          // Watchers start after the initial sync reports success; an edit
+          // before they are up is not seen.
+          yield* Effect.sleep("2 seconds");
           expect(yield* read("convex/convex.config.ts")).toContain(
             "FIRST: v.string(),",
           );
