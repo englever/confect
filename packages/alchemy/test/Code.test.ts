@@ -15,7 +15,6 @@ import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
-import { AlchemyContext } from "alchemy/AlchemyContext";
 import {
   deploy,
   InvalidDeploymentTarget,
@@ -486,7 +485,8 @@ describe("Code push lock", () => {
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const dotAlchemy = yield* fs.makeTempDirectoryScoped({
+        // Push locks live in the user's cache; keep them out of the real one.
+        const home = yield* fs.makeTempDirectoryScoped({
           prefix: "confect-push-order-",
         });
         const events: string[] = [];
@@ -502,11 +502,11 @@ describe("Code push lock", () => {
         const push = (codeProps: CodeProps) =>
           deploy(codeProps).pipe(
             Effect.provide(runner),
-            Effect.provideService(AlchemyContext, {
-              dotAlchemy,
-              dev: false,
-              adopt: false,
-            }),
+            Effect.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromUnknown({ HOME: home, LOCALAPPDATA: home }),
+              ),
+            ),
           );
         yield* Effect.all([push(props), push(props)], {
           concurrency: "unbounded",
