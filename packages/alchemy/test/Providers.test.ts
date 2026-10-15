@@ -6,6 +6,7 @@ import { ConvexApiError } from "@confect/alchemy/ConvexClient";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import { ArtifactStore } from "alchemy/Artifacts";
 import { Stack } from "alchemy/Stack";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Result from "effect/Result";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -22,8 +23,8 @@ const stackEnvironment = Layer.mergeAll(
     resources: {},
     bindings: {},
     actions: {},
-    output: undefined,
   }),
+  FetchHttpClient.layer,
 );
 
 describe("providers", () => {
@@ -43,7 +44,18 @@ describe("providers", () => {
         expect(typeof provider?.delete).toBe("function");
       }
     }).pipe(
-      Effect.provide(Convex.providers().pipe(Layer.provide(stackEnvironment))),
+      Effect.provide(
+        Convex.providers().pipe(
+          Layer.provide(stackEnvironment),
+          Layer.provide(
+            Layer.succeed(AlchemyContext, {
+              dotAlchemy: ".alchemy",
+              dev: false,
+              adopt: false,
+            }),
+          ),
+        ),
+      ),
     ),
   );
 
@@ -67,6 +79,7 @@ describe("providers", () => {
         const result = yield* Effect.flatMap(
           Effect.fromNullishOr(project),
           (provider) =>
+            // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the registry erases provider error types
             provider.reconcile({
               id: "Project",
               fqn: "Project",

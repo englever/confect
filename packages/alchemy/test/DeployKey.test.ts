@@ -280,7 +280,20 @@ it.effect(
         "dev",
         deploymentName,
       );
-      const provider = yield* DeployKey.localProvider;
+      const provider = yield* DeployKey.localProvider.pipe(
+        Effect.provideService(AlchemyContext, {
+          dotAlchemy,
+          dev: true,
+          adopt: false,
+        }),
+        Effect.provideService(Stack, {
+          name: "notes",
+          stage: "dev",
+          resources: {},
+          bindings: {},
+          actions: {},
+        }),
+      );
       const reconcile = provider
         .reconcile({
           ...lifecycle,
@@ -288,22 +301,7 @@ it.effect(
           olds: undefined,
           output: undefined,
         })
-        .pipe(
-          Effect.provideService(AlchemyContext, {
-            dotAlchemy,
-            dev: true,
-            adopt: false,
-          }),
-          Effect.provideService(Stack, {
-            name: "notes",
-            stage: "dev",
-            resources: {},
-            bindings: {},
-            actions: {},
-            output: undefined,
-          }),
-          Effect.result,
-        );
+        .pipe(Effect.result);
       expect(yield* reconcile).toEqual(
         Result.fail(
           new LocalBackendError({ deploymentName, reason: "identity" }),

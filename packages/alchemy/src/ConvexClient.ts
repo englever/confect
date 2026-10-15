@@ -180,6 +180,7 @@ const ProjectsPageSchema = Schema.Struct({
 
 const make = Effect.fn("ConvexClient.make")(function* (options?: {
   readonly token?: Redacted.Redacted<string>;
+  readonly deployments?: "cloud" | "local";
 }) {
   const http = yield* HttpClient.HttpClient;
   const managementAuthorization = Effect.gen(function* () {
@@ -306,6 +307,11 @@ const make = Effect.fn("ConvexClient.make")(function* (options?: {
   ) {
     const invalidUrl = () =>
       new ConvexApiError({ operation, code: "InvalidRequest" });
+    if (options?.deployments === "local") {
+      if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(url))
+        return yield* invalidUrl();
+      return `${url}/api/v1`;
+    }
     const parsed = yield* Effect.try({
       try: () => new URL(url),
       catch: invalidUrl,
@@ -526,7 +532,12 @@ export class ConvexClient extends Context.Service<
   Effect.Success<ReturnType<typeof make>>
 >()("@confect/alchemy/ConvexClient") {}
 
+/**
+ * `deployments: "local"` sends deployment requests only to a loopback backend
+ * over HTTP; the default accepts only Convex cloud HTTPS origins.
+ */
 export const layer = (options?: {
   readonly token?: Redacted.Redacted<string>;
+  readonly deployments?: "cloud" | "local";
 }) =>
   Layer.effect(ConvexClient, make(options).pipe(Effect.map(ConvexClient.of)));

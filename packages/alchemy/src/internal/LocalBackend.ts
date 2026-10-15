@@ -108,22 +108,20 @@ const isFree = (port: number) =>
   );
 
 /**
- * The directory that holds one local deployment's identity, database, and file
- * storage: `.alchemy/convex/<stack>/<stage>/<deployment>`. Keyed by the
- * deployment name because a deploy key resource only knows that name.
+ * Resolves the directory that holds one local deployment's identity, database,
+ * and file storage: `.alchemy/convex/<stack>/<stage>/<deployment>`. Keyed by
+ * the deployment name because a deploy key resource only knows that name.
  */
-export const dataDirectory = Effect.fn("LocalBackend.dataDirectory")(function* (
-  deploymentName: string,
-) {
+export const dataDirectories = Effect.gen(function* () {
   const path = yield* Path.Path;
   const stack = yield* Stack;
-  return path.resolve(
+  const root = path.resolve(
     yield* dotAlchemyDirectory,
     "convex",
     stack.name,
     stack.stage,
-    deploymentName,
   );
+  return (deploymentName: string) => path.join(root, deploymentName);
 });
 
 const readIdentity = Effect.fn("LocalBackend.readIdentity")(function* (

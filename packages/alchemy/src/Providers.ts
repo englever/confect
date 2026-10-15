@@ -1,4 +1,6 @@
+import * as ProviderLayer from "alchemy/Local/ProviderLayer";
 import * as Provider from "alchemy/Provider";
+import type * as Redacted from "effect/Redacted";
 import * as Layer from "effect/Layer";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Code from "./Code";
@@ -14,10 +16,19 @@ export class Providers extends Provider.ProviderCollection<Providers>()(
   "@confect/alchemy/Providers",
 ) {}
 
+const localClient = ConvexClient.layer({ deployments: "local" }).pipe(
+  Layer.provide(FetchHttpClient.layer),
+);
+
 /**
- * Register cloud resources without eagerly resolving management credentials.
+ * Register Convex resources without eagerly resolving management credentials.
+ * `alchemy deploy` resolves each resource to its cloud provider; `alchemy dev`
+ * resolves the same resources to local providers backed by a local Convex
+ * backend, so one stack definition serves both.
  */
-export const providers = (options?: Parameters<typeof ConvexClient.layer>[0]) =>
+export const providers = (options?: {
+  readonly token?: Redacted.Redacted<string>;
+}) =>
   Layer.effect(
     Providers,
     Provider.collection([
@@ -30,11 +41,27 @@ export const providers = (options?: Parameters<typeof ConvexClient.layer>[0]) =>
   ).pipe(
     Layer.provide(
       Layer.mergeAll(
-        Project.layer,
-        Deployment.layer,
-        DeployKey.layer,
-        EnvironmentVariables.layer,
-        Code.layer,
+        ProviderLayer.dual(Project.Project, {
+          live: () => Project.layer,
+          local: () => Project.localLayer,
+        }),
+        ProviderLayer.dual(Deployment.Deployment, {
+          live: () => Deployment.layer,
+          local: () => Deployment.localLayer,
+        }),
+        ProviderLayer.dual(DeployKey.DeployKey, {
+          live: () => DeployKey.layer,
+          local: () => DeployKey.localLayer,
+        }),
+        ProviderLayer.dual(EnvironmentVariables.EnvironmentVariables, {
+          live: () => EnvironmentVariables.layer,
+          local: () =>
+            EnvironmentVariables.layer.pipe(Layer.provide(localClient)),
+        }),
+        ProviderLayer.dual(Code.Code, {
+          live: () => Code.layer,
+          local: () => Code.localLayer,
+        }),
       ),
     ),
     Layer.provide(
