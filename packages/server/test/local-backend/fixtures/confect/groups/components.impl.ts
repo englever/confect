@@ -98,23 +98,31 @@ const hasAuth = FunctionImpl.make(schema, spec, "hasAuth", () =>
   }).pipe(Effect.orDie),
 );
 
-const deepRoundTrip = FunctionImpl.make(
+const deepCreate = FunctionImpl.make(
   schema,
   spec,
-  "deepRoundTrip",
-  ({ run }) =>
+  "deepCreate",
+  ({ run, installation, count }) =>
     Effect.gen(function* () {
       const mutation = yield* MutationRunner;
+      const binding = installation === "left" ? left : right;
+      return yield* mutation.runMutation(binding.parent.deepCreate, {
+        run,
+        count,
+      });
+    }).pipe(Effect.orDie),
+);
+const deepRead = FunctionImpl.make(
+  schema,
+  spec,
+  "deepRead",
+  ({ run, installation }) =>
+    Effect.gen(function* () {
       const query = yield* QueryRunner;
-      yield* mutation.runMutation(left.parent.deepCreate, { run, count: 23 });
-      yield* mutation.runMutation(right.parent.deepCreate, { run, count: 29 });
+      const binding = installation === "left" ? left : right;
       return {
-        left: yield* query.runQuery(left.parent.deepList, { run }),
-        right: yield* query.runQuery(right.parent.deepList, { run }),
-        paths: [
-          yield* query.runQuery(left.parent.deepLocation, {}),
-          yield* query.runQuery(right.parent.deepLocation, {}),
-        ],
+        counts: yield* query.runQuery(binding.parent.deepList, { run }),
+        path: yield* query.runQuery(binding.parent.deepLocation, {}),
       };
     }).pipe(Effect.orDie),
 );
@@ -197,7 +205,8 @@ export default GroupImpl.make(schema, spec).pipe(
     uploadUrl,
     storageUrl,
     hasAuth,
-    deepRoundTrip,
+    deepCreate,
+    deepRead,
     declaredError,
     seed,
     page,

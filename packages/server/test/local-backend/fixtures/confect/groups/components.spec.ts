@@ -76,13 +76,26 @@ export default GroupSpec.make()
   )
   .addFunction(
     FunctionSpec.publicMutation({
-      name: "deepRoundTrip",
-      args: () => ({ run: Schema.String }),
+      name: "deepCreate",
+      args: () => ({
+        run: Schema.String,
+        installation: Schema.Literals(["left", "right"]),
+        count: Schema.Finite,
+      }),
+      returns: () => Schema.Null,
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "deepRead",
+      args: () => ({
+        run: Schema.String,
+        installation: Schema.Literals(["left", "right"]),
+      }),
       returns: () =>
         Schema.Struct({
-          left: Schema.Array(Schema.Finite),
-          right: Schema.Array(Schema.Finite),
-          paths: Schema.Array(Schema.String),
+          counts: Schema.Array(Schema.Finite),
+          path: Schema.String,
         }),
     }),
   )

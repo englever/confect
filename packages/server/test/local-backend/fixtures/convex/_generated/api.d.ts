@@ -110,11 +110,17 @@ export declare const api: {
           tag: "Rejected";
         }
       >;
-      deepRoundTrip: FunctionReference<
+      deepCreate: FunctionReference<
         "mutation",
         "public",
-        { run: string },
-        { left: Array<number>; paths: Array<string>; right: Array<number> }
+        { count: number; installation: "left" | "right"; run: string },
+        null
+      >;
+      deepRead: FunctionReference<
+        "query",
+        "public",
+        { installation: "left" | "right"; run: string },
+        { counts: Array<number>; path: string }
       >;
       environment: FunctionReference<
         "query",

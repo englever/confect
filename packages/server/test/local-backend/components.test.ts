@@ -274,10 +274,38 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
       Effect.gen(function* () {
         const { client } = yield* LocalBackend.LocalBackend;
         const run = String(yield* Random.next);
-        const result = yield* Effect.promise(() =>
-          client.mutation(api.groups.components.deepRoundTrip, { run }),
+        yield* Effect.promise(() =>
+          client.mutation(api.groups.components.deepCreate, {
+            run,
+            installation: "left",
+            count: 23,
+          }),
         );
-        expect(result).toEqual({
+        yield* Effect.promise(() =>
+          client.mutation(api.groups.components.deepCreate, {
+            run,
+            installation: "right",
+            count: 29,
+          }),
+        );
+        // Read both installations after both writes so either direction of leakage fails.
+        const left = yield* Effect.promise(() =>
+          client.query(api.groups.components.deepRead, {
+            run,
+            installation: "left",
+          }),
+        );
+        const right = yield* Effect.promise(() =>
+          client.query(api.groups.components.deepRead, {
+            run,
+            installation: "right",
+          }),
+        );
+        expect({
+          left: left.counts,
+          right: right.counts,
+          paths: [left.path, right.path],
+        }).toEqual({
           left: [23],
           right: [29],
           paths: ["left/deep/child/child", "right/deep/child/child"],
