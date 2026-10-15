@@ -70,6 +70,18 @@ describe("Callable", () => {
     );
     // @ts-expect-error A different function contract is incompatible.
     const incompatible: Ref.Callable<typeof own> = different;
+    const requiresVolume = Ref.make(
+      "greetings",
+      FunctionSpec.publicQuery({
+        name: "loud",
+        args: () => ({ name: Schema.String, volume: Schema.Int }),
+        returns: () => Schema.String,
+        error: () => Schema.Struct({ message: Schema.String }),
+      }),
+    );
+    // @ts-expect-error A shared handler cannot supply an extra required argument.
+    const missingArgument: Ref.Callable<typeof own> = requiresVolume;
+    void missingArgument;
     // @ts-expect-error A callable ref does not promise public visibility.
     const publicOnly: Ref.AnyPublic = bound.greetings.greet as Ref.Callable<
       typeof own
