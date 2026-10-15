@@ -85,6 +85,39 @@ export const api: {
     ticks: FunctionReference<"query", "public", {}, number>;
     uploadUrl: FunctionReference<"mutation", "public", {}, string>;
   };
+  deliveries: {
+    breach: FunctionReference<
+      "mutation",
+      "public",
+      { id: Id<"deliveries"> },
+      "success" | "failure" | "defect"
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { id: Id<"deliveries"> },
+      {
+        onEvent: string;
+        run: string;
+        status: "queued" | "sent" | "delivered" | "bounced";
+      }
+    >;
+    send: FunctionReference<
+      "mutation",
+      "public",
+      { onEvent: string; run: string },
+      Id<"deliveries">
+    >;
+    setStatus: FunctionReference<
+      "mutation",
+      "public",
+      {
+        id: Id<"deliveries">;
+        status: "queued" | "sent" | "delivered" | "bounced";
+      },
+      string | null
+    >;
+  };
 } = anyApi as any;
 
 /**
@@ -98,6 +131,14 @@ export const api: {
 export const internal: {
   counter: {
     tick: FunctionReference<"mutation", "internal", {}, null>;
+  };
+  deliveries: {
+    deliver: FunctionReference<
+      "mutation",
+      "internal",
+      { id: Id<"deliveries"> },
+      null
+    >;
   };
 } = anyApi as any;
 

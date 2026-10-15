@@ -28,9 +28,20 @@ class BackendEnvironmentSetupError extends Schema.TaggedError<BackendEnvironment
   { name: Schema.String, exitCode: Schema.Finite },
 ) {}
 
+class BackendRedeployError extends Schema.TaggedError<BackendRedeployError>()(
+  "BackendRedeployError",
+  { exitCode: Schema.Finite },
+) {}
+
 export class LocalBackend extends Context.Service<
   LocalBackend,
-  { readonly client: ConvexHttpClient }
+  {
+    readonly client: ConvexHttpClient;
+    /**
+     * Push the unchanged fixture code to the running backend again.
+     */
+    readonly redeploy: Effect.Effect<void, BackendRedeployError>;
+  }
 >()("@confect/server/test/local-backend/LocalBackend") {}
 
 const READY_LINE = "Convex functions ready!";
@@ -139,7 +150,32 @@ const make = Effect.gen(function* () {
               exitCode: code,
             });
         }
-        return { client: new ConvexHttpClient(URL) };
+        const redeploy = Effect.gen(function* () {
+          const code = yield* spawner
+            .exitCode(
+              ChildProcess.make(
+                "pnpm",
+                [
+                  "convex",
+                  "run",
+                  "--push",
+                  "--typecheck=disable",
+                  "--codegen=disable",
+                  "groups/components:hasAuth",
+                ],
+                {
+                  cwd: fixturesDir,
+                  shell: true,
+                  extendEnv: true,
+                  env: { CONVEX_AGENT_MODE: "anonymous" },
+                },
+              ),
+            )
+            .pipe(Effect.orDie);
+          if (code !== 0)
+            return yield* new BackendRedeployError({ exitCode: code });
+        });
+        return { client: new ConvexHttpClient(URL), redeploy };
       }
 
       const exitCode = yield* handle.exitCode;
