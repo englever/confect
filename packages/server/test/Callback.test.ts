@@ -4,6 +4,7 @@ import {
   GenericId,
   GroupSpec,
   IdScope,
+  type MiddlewareAttachment,
   MiddlewareSpec,
   Ref,
   Refs,
@@ -14,6 +15,7 @@ import * as Callback from "@confect/server/Callback";
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { vi } from "vitest";
 
@@ -83,6 +85,205 @@ describe("create", () => {
           "function://;callbacks:onEvent",
           { run: "a", status: "sent" },
         ]);
+      }),
+  );
+});
+
+const created = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.suspend(() => {
+    vi.stubGlobal("Convex", {
+      asyncSyscall: () =>
+        Promise.resolve(JSON.stringify("function://;callbacks:onEvent")),
+    });
+    return Effect.exit(effect);
+  }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals())));
+
+const mismatch = (
+  contract: string,
+  side: "args" | "returns" | "error",
+  expected: Schema.Json,
+  actual: Schema.Json,
+) =>
+  Exit.fail(
+    new Callback.CallbackContractMismatch({ contract, side, expected, actual }),
+  );
+
+describe("create checks the host's validators", () => {
+  it.effect("refuses args fields the types cannot see", () =>
+    Effect.gen(function* () {
+      const contractArgs: Record<string, typeof Schema.String> = {
+        wanted: Schema.String,
+      };
+      const hostArgs: Record<string, typeof Schema.String> = {
+        other: Schema.String,
+      };
+      const Keyed = CoreCallback.mutation("counter/onKeyed", {
+        args: () => contractArgs,
+        returns: () => Schema.Null,
+      });
+      const keyed = host(
+        FunctionSpec.internalMutation({
+          name: "keyed",
+          args: () => hostArgs,
+          returns: () => Schema.Null,
+        }),
+      );
+      expect(yield* created(Callback.create(Keyed, keyed))).toEqual(
+        mismatch(
+          "counter/onKeyed",
+          "args",
+          { kind: "object", fields: { wanted: { kind: "string" } } },
+          { kind: "object", fields: { other: { kind: "string" } } },
+        ),
+      );
+    }),
+  );
+
+  it.effect("refuses returns the types cannot see", () =>
+    Effect.gen(function* () {
+      const contractFields: Record<string, typeof Schema.String> = {
+        wanted: Schema.String,
+      };
+      const hostFields: Record<string, typeof Schema.String> = {
+        other: Schema.String,
+      };
+      const Keyed = CoreCallback.mutation("counter/onKeyed", {
+        returns: () => Schema.Struct(contractFields),
+      });
+      const keyed = host(
+        FunctionSpec.internalMutation({
+          name: "keyed",
+          returns: () => Schema.Struct(hostFields),
+        }),
+      );
+      expect(yield* created(Callback.create(Keyed, keyed))).toEqual(
+        mismatch(
+          "counter/onKeyed",
+          "returns",
+          { kind: "object", fields: { wanted: { kind: "string" } } },
+          { kind: "object", fields: { other: { kind: "string" } } },
+        ),
+      );
+    }),
+  );
+
+  it.effect("refuses an application ID where the contract sends a string", () =>
+    Effect.gen(function* () {
+      const Named = CoreCallback.mutation("counter/onNamed", {
+        args: () => ({ id: Schema.String }),
+        returns: () => Schema.Null,
+      });
+      const named = host(
+        FunctionSpec.internalMutation({
+          name: "named",
+          args: () => ({ id: GenericId.GenericId("users") }),
+          returns: () => Schema.Null,
+        }),
+      );
+      expect(
+        // @ts-expect-error the host's validator accepts only IDs of users
+        yield* created(Callback.create(Named, named)),
+      ).toEqual(
+        mismatch(
+          "counter/onNamed",
+          "args",
+          { kind: "object", fields: { id: { kind: "string" } } },
+          {
+            kind: "object",
+            fields: { id: { kind: "id", tableName: "users" } },
+          },
+        ),
+      );
+    }),
+  );
+
+  it.effect("refuses errors from group middleware whose types are erased", () =>
+    Effect.gen(function* () {
+      class Blocked extends Schema.TaggedError<Blocked>()("Blocked", {}) {}
+      class Gate extends MiddlewareSpec.MiddlewareSpec<Gate>()("Gate", {
+        error: () => Blocked,
+        functionTypes: { query: false, mutation: true, action: false },
+      }) {}
+      const attachments: ReadonlyArray<MiddlewareAttachment.MiddlewareAttachment> =
+        [{ spec: Gate, options: undefined }];
+      const Guarded = CoreCallback.mutation("counter/onGuarded", {
+        returns: () => Schema.Null,
+        error: () => EventRejected,
+      });
+      const grouped = Ref.make(
+        "callbacks",
+        FunctionSpec.internalMutation({
+          name: "grouped",
+          returns: () => Schema.Null,
+          error: () => EventRejected,
+        }),
+        attachments,
+      );
+      expect(
+        // @ts-expect-error the erased attachments may fail with any error
+        yield* created(Callback.create(Guarded, grouped)),
+      ).toEqual(
+        mismatch(
+          "counter/onGuarded",
+          "error",
+          {
+            kind: "object",
+            fields: {
+              _tag: { kind: "literal", value: "EventRejected" },
+              reason: { kind: "string" },
+            },
+          },
+          {
+            kind: "union",
+            members: [
+              {
+                kind: "object",
+                fields: { _tag: { kind: "literal", value: "Blocked" } },
+              },
+              {
+                kind: "object",
+                fields: {
+                  _tag: { kind: "literal", value: "EventRejected" },
+                  reason: { kind: "string" },
+                },
+              },
+            ],
+          },
+        ),
+      );
+    }),
+  );
+
+  it.effect(
+    "accepts reordered unions, fewer errors and component IDs typed by the host",
+    () =>
+      Effect.gen(function* () {
+        const definition = IdScope.component("counter");
+        const installation = IdScope.instance(IdScope.app, "first");
+        const Mixed = CoreCallback.mutation("counter/onMixed", {
+          args: () => ({
+            id: GenericId.GenericId("deliveries", definition),
+            value: Schema.Union([Schema.String, Schema.Finite]),
+            note: Schema.optionalKey(Schema.String),
+          }),
+          returns: () => Schema.Null,
+          error: () => Schema.Union([EventRejected, Unrelated]),
+        });
+        const mixed = host(
+          FunctionSpec.internalMutation({
+            name: "mixed",
+            args: () => ({
+              id: GenericId.GenericId("deliveries", installation),
+              value: Schema.Union([Schema.Finite, Schema.String]),
+              note: Schema.optional(Schema.String),
+            }),
+            returns: () => Schema.Null,
+            error: () => Unrelated,
+          }),
+        );
+        expect(
+          Exit.isSuccess(yield* created(Callback.create(Mixed, mixed))),
+        ).toBe(true);
       }),
   );
 });
@@ -321,6 +522,55 @@ describe("create types", () => {
     );
     // @ts-expect-error N1 neither branch of the host's union accepts a and b together
     void Callback.create(Tagged, split);
+  });
+
+  it("N1 and H1: compare tuples by position and length", () => {
+    const Pair = Schema.Tuple([Schema.String, Schema.Finite]);
+    const Paired = CoreCallback.mutation("counter/onPaired", {
+      args: () => ({ x: Pair }),
+      returns: () => Pair,
+    });
+    const paired = host(
+      FunctionSpec.internalMutation({
+        name: "paired",
+        args: () => ({ x: Pair }),
+        returns: () => Pair,
+      }),
+    );
+    const swapped = host(
+      FunctionSpec.internalMutation({
+        name: "swapped",
+        args: () => ({ x: Schema.Tuple([Schema.Finite, Schema.String]) }),
+        returns: () => Pair,
+      }),
+    );
+    const listed = host(
+      FunctionSpec.internalMutation({
+        name: "listed",
+        args: () => ({ x: Pair }),
+        returns: () =>
+          Schema.Array(Schema.Union([Schema.String, Schema.Finite])),
+      }),
+    );
+    void Callback.create(Paired, paired);
+    // @ts-expect-error N1 the host decodes x[0] as a number
+    void Callback.create(Paired, swapped);
+    // @ts-expect-error H1 the host may return an array of any length
+    void Callback.create(Paired, listed);
+  });
+
+  it("H1: rejects returns narrower than the contract's", () => {
+    const Named = CoreCallback.mutation("counter/onNamed", {
+      returns: () => Schema.String,
+    });
+    const literal = host(
+      FunctionSpec.internalMutation({
+        name: "literal",
+        returns: () => Schema.Literal("x"),
+      }),
+    );
+    // @ts-expect-error H1 the host's returns validator is v.literal("x"), not v.string()
+    void Callback.create(Named, literal);
   });
 
   it("accepts a host that types a component's ID with its own scope", () => {
