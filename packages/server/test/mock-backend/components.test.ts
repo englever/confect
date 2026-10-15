@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import * as componentTesting from "./fixtures/componentTesting";
 import * as mounts from "../local-backend/fixtures/confect/componentBindings";
 import counterConvexSchema from "../local-backend/fixtures/components/counter/convex/schema";
 import innerConvexSchema from "../local-backend/fixtures/components/inner/convex/schema";
@@ -301,6 +302,25 @@ it.effect(
     }).pipe(
       Effect.provide(
         TestConfect.layer(hostSchema, hostConvexSchema, hostModules),
+      ),
+    ),
+);
+
+it.effect(
+  "registers a component kit before the TestConfect layer resolves",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* TestConfect.TestConfect<typeof hostSchema>();
+      yield* t.mutation(first.counter.create, { count: 17 });
+      expect(
+        Array.map(yield* t.query(first.counter.list), (row) => row.count),
+      ).toEqual([17]);
+    }).pipe(
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules, {
+          register: (registerComponent) =>
+            componentTesting.register(registerComponent, "first"),
+        }),
       ),
     ),
 );
