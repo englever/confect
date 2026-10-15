@@ -58,6 +58,25 @@ export class CommandRunner extends Context.Service<
   }
 >()("@confect/alchemy/internal/CommandRunner") {}
 
+/**
+ * The ambient variables a child process needs to run on every platform; the
+ * rest of the parent environment, credentials included, is withheld.
+ */
+export const processEnvironment = Config.all({
+  PATH: Config.String("PATH").pipe(
+    Config.orElse(() => Config.String("Path")),
+    Config.withDefault(""),
+  ),
+  HOME: Config.String("HOME").pipe(Config.withDefault("")),
+  USERPROFILE: Config.String("USERPROFILE").pipe(Config.withDefault("")),
+  SystemRoot: Config.String("SystemRoot").pipe(
+    Config.orElse(() => Config.String("SYSTEMROOT")),
+    Config.withDefault(""),
+  ),
+  TMPDIR: Config.String("TMPDIR").pipe(Config.withDefault("")),
+  TEMP: Config.String("TEMP").pipe(Config.withDefault("")),
+});
+
 const packageBin = Effect.fn("CommandRunner.packageBin")(function* (
   fs: FileSystem.FileSystem,
   path: Path.Path,
@@ -141,20 +160,9 @@ export const layer = Layer.effect(
           exitCode: Number(code),
         });
     });
-    const environment = Config.all({
-      PATH: Config.String("PATH").pipe(
-        Config.orElse(() => Config.String("Path")),
-        Config.withDefault(""),
-      ),
-      HOME: Config.String("HOME").pipe(Config.withDefault("")),
-      USERPROFILE: Config.String("USERPROFILE").pipe(Config.withDefault("")),
-      SystemRoot: Config.String("SystemRoot").pipe(
-        Config.orElse(() => Config.String("SYSTEMROOT")),
-        Config.withDefault(""),
-      ),
-      TMPDIR: Config.String("TMPDIR").pipe(Config.withDefault("")),
-      TEMP: Config.String("TEMP").pipe(Config.withDefault("")),
-    }).pipe(Effect.map((env) => ({ ...env, CI: "true", DO_NOT_TRACK: "1" })));
+    const environment = processEnvironment.pipe(
+      Effect.map((env) => ({ ...env, CI: "true", DO_NOT_TRACK: "1" })),
+    );
     return CommandRunner.of({
       prepare: Effect.fn("CommandRunner.prepare")(function* (
         command,
