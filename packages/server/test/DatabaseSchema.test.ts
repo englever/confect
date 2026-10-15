@@ -2,6 +2,7 @@ import * as DatabaseSchema from "@confect/server/DatabaseSchema";
 import * as Table from "@confect/server/Table";
 import * as IdScope from "@confect/core/IdScope";
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 describe("DatabaseSchema", () => {
@@ -66,5 +67,51 @@ describe("DatabaseSchema", () => {
       typeof counters
     >();
     expectTypeOf<"~Tables">().not.toExtend<keyof typeof schema>();
+  });
+  it("reports an empty component database scope with its validation context", () => {
+    expect(
+      Result.try(() =>
+        DatabaseSchema.make({}, { kind: "component", scope: IdScope.app }),
+      ),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "EmptyDatabaseScope", databaseScope: IdScope.app },
+    });
+  });
+
+  it("reports mismatched table names and scopes as tagged binding failures", () => {
+    const notes = Table.make(() => Schema.Struct({ text: Schema.String }))(
+      "notes",
+    );
+    const componentScope = IdScope.component("counter");
+    expect(
+      Result.try(() => DatabaseSchema.make({ other: notes })),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "TableBindingMismatch",
+        bindingName: "other",
+        tableName: "notes",
+        tableScope: IdScope.app,
+        databaseScope: IdScope.app,
+      },
+    });
+    expect(
+      Result.try(() =>
+        DatabaseSchema.make(
+          { notes },
+          { kind: "component", scope: componentScope },
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "TableBindingMismatch",
+        bindingName: "notes",
+        tableName: "notes",
+        tableScope: IdScope.app,
+        databaseScope: componentScope,
+      },
+    });
   });
 });

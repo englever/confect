@@ -1,8 +1,30 @@
 import * as IdScope from "@confect/core/IdScope";
-import * as Match from "effect/Match";
+import * as Data from "effect/Data";
+import * as Result from "effect/Result";
 import * as Predicate from "effect/Predicate";
 import * as Record from "effect/Record";
 import type * as Table from "./Table";
+
+export class EmptyDatabaseScope extends Data.TaggedError("EmptyDatabaseScope")<{
+  readonly databaseScope: IdScope.IdScope;
+}> {
+  override get message(): string {
+    return "A component database schema requires a nonempty ID scope.";
+  }
+}
+
+export class TableBindingMismatch extends Data.TaggedError(
+  "TableBindingMismatch",
+)<{
+  readonly bindingName: string;
+  readonly tableName: string;
+  readonly tableScope: IdScope.IdScope;
+  readonly databaseScope: IdScope.IdScope;
+}> {
+  override get message(): string {
+    return `Table '${this.bindingName}' must be bound to its database schema's name and ID scope.`;
+  }
+}
 
 export const TypeId = "~@confect/server/DatabaseSchema";
 export type TypeId = typeof TypeId;
@@ -70,6 +92,28 @@ export type TableWithName<
   TableName extends TableNames<DatabaseSchema_>,
 > = Extract<Tables<DatabaseSchema_>, { readonly tableName: TableName }>;
 
+const validateBindings = (
+  tableRecord: Readonly<Record<string, Table.AnyWithProps>>,
+  target: Target,
+): Result.Result<void, EmptyDatabaseScope | TableBindingMismatch> => {
+  if (target.kind === "component" && target.scope === "") {
+    return Result.fail(new EmptyDatabaseScope({ databaseScope: target.scope }));
+  }
+  for (const [name, table] of Record.toEntries(tableRecord)) {
+    if (name !== table.tableName || table.scope !== target.scope) {
+      return Result.fail(
+        new TableBindingMismatch({
+          bindingName: name,
+          tableName: table.tableName,
+          tableScope: table.scope,
+          databaseScope: target.scope,
+        }),
+      );
+    }
+  }
+  return Result.succeed(undefined);
+};
+
 /**
  * Construct a database schema from its bound table record. The record's keys
  * must match their tables' names. Table schemas remain lazy; construction only
@@ -83,24 +127,7 @@ export const make = <
   target?: Target_,
 ): DatabaseSchema<TablesRecord, Target_> => {
   const resolvedTarget = target ?? { kind: "app", scope: IdScope.app };
-  Match.value(resolvedTarget.kind).pipe(
-    Match.when("app", () => {}),
-    Match.when("component", () => {
-      if (resolvedTarget.scope === "") {
-        throw new Error(
-          "A component database schema requires a nonempty ID scope.",
-        );
-      }
-    }),
-    Match.exhaustive,
-  );
-  for (const [name, table] of Record.toEntries(tableRecord)) {
-    if (name !== table.tableName || table.scope !== resolvedTarget.scope) {
-      throw new Error(
-        `Table '${name}' must be bound to its database schema's name and ID scope.`,
-      );
-    }
-  }
+  Result.getOrThrow(validateBindings(tableRecord, resolvedTarget));
   return {
     [TypeId]: tableRecord,
     target: resolvedTarget,

@@ -1,6 +1,8 @@
 import type { DefaultFunctionArgs, FunctionReference } from "convex/server";
 import { getFunctionAddress } from "convex/server";
 import * as Array from "effect/Array";
+import * as Data from "effect/Data";
+import * as Result from "effect/Result";
 import { memoize, pipe } from "effect/Function";
 import * as Match from "effect/Match";
 import * as Record from "effect/Record";
@@ -16,6 +18,67 @@ import * as Ref from "./Ref";
 import type * as Refs from "./Refs";
 import type * as RuntimeAndFunctionType from "./RuntimeAndFunctionType";
 import * as Spec from "./Spec";
+
+export class EmptyComponentScope extends Data.TaggedError(
+  "EmptyComponentScope",
+)<{
+  readonly definitionScope: IdScope.IdScope;
+}> {
+  override get message(): string {
+    return "A component contract requires a nonempty definition scope.";
+  }
+}
+
+export class ComponentNameCollision extends Data.TaggedError(
+  "ComponentNameCollision",
+)<{
+  readonly groupPath: string;
+  readonly functionName: string;
+}> {
+  override get message(): string {
+    return `Group and function at same level have same name ('${this.groupPath}:${this.functionName}')`;
+  }
+}
+
+export class UninstalledComponentReference extends Data.TaggedError(
+  "UninstalledComponentReference",
+)<{
+  readonly definitionScope: IdScope.IdScope;
+}> {
+  override get message(): string {
+    return "Component.bind expects an installed component from the generated components registry.";
+  }
+}
+
+const validateNames = (
+  groups: Readonly<Record<string, GroupSpec.AnyWithProps>>,
+  prefix = "",
+): Result.Result<void, ComponentNameCollision> => {
+  for (const [name, group] of Record.toEntries(groups)) {
+    const path = prefix === "" ? name : `${prefix}/${name}`;
+    for (const functionSpec of Record.values(group.functions)) {
+      if (Record.has(group.groups, functionSpec.name)) {
+        return Result.fail(
+          new ComponentNameCollision({
+            groupPath: path,
+            functionName: functionSpec.name,
+          }),
+        );
+      }
+    }
+    const nested = validateNames(group.groups, path);
+    if (Result.isFailure(nested)) return nested;
+  }
+  return Result.succeed(undefined);
+};
+
+const validateContract = (
+  scope: IdScope.IdScope,
+  groups: Readonly<Record<string, GroupSpec.AnyWithProps>>,
+): Result.Result<void, EmptyComponentScope | ComponentNameCollision> =>
+  scope === ""
+    ? Result.fail(new EmptyComponentScope({ definitionScope: scope }))
+    : validateNames(groups);
 
 const TypeId = "~@confect/core/Component";
 const BoundTypeId = "~@confect/core/BoundComponent";
@@ -158,10 +221,8 @@ export const make = <
   scope: Scope,
   tables: ReadonlyArray<Tables>,
 ): Component<Spec_, Scope, Tables> => {
-  if (scope === "")
-    throw new Error(
-      "A component contract requires a nonempty definition scope.",
-    );
+  const specGroups = Spec.groups(spec);
+  Result.getOrThrow(validateContract(scope, specGroups));
   const collect = (
     groups: Readonly<Record<string, GroupSpec.AnyWithProps>>,
     prefix = "",
@@ -173,10 +234,6 @@ export const make = <
         const functions = pipe(
           group.functions,
           Record.filter((functionSpec) => {
-            if (Record.has(group.groups, functionSpec.name))
-              throw new Error(
-                `Group and function at same level have same name ('${path}:${functionSpec.name}')`,
-              );
             return Match.value(functionSpec.functionVisibility).pipe(
               Match.when("public", () => true),
               Match.when("internal", () => false),
@@ -192,7 +249,7 @@ export const make = <
       Record.filter((children) => !Record.isEmptyRecord(children)),
     );
   return {
-    [TypeId]: { refs: collect(Spec.groups(spec)), scope, tables },
+    [TypeId]: { refs: collect(specGroups), scope, tables },
   } as Component<Spec_, Scope, Tables>;
 };
 
@@ -217,15 +274,18 @@ export const bind = <
 > => {
   const contract = component[TypeId];
   const address = getFunctionAddress(native);
-  if (address.reference === undefined)
-    throw new Error(
-      "Component.bind expects an installed component from the generated components registry.",
-    );
+  const installedReference = Result.getOrThrow(
+    Result.fromNullishOr(
+      address.reference,
+      () =>
+        new UninstalledComponentReference({ definitionScope: contract.scope }),
+    ),
+  );
   // Preserve the opaque address as an identity only. Calls retain the native
   // references; no component address is constructed or parsed for routing.
   const scope = IdScope.instance(
     options?.parentScope ?? IdScope.app,
-    address.reference,
+    installedReference,
   );
   const rebase = (schema: Schema.ConstraintCodec<any, any, never, never>) =>
     GenericId.rebase(schema, contract.scope, scope);

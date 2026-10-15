@@ -11,7 +11,11 @@ import {
   SchemaToValidator,
   Spec,
 } from "@confect/core";
-import { componentsGeneric, getFunctionAddress } from "convex/server";
+import {
+  componentsGeneric,
+  getFunctionAddress,
+  makeFunctionReference,
+} from "convex/server";
 import type { RegisteredQuery } from "convex/server";
 import { v } from "convex/values";
 import * as Schema from "effect/Schema";
@@ -370,6 +374,16 @@ describe("published component contracts", () => {
     expect(() => Component.make(conflicting, scope, [])).toThrow(
       "Group and function at same level have same name ('nested:conflict')",
     );
+    expect(
+      Result.try(() => Component.make(conflicting, scope, [])),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "ComponentNameCollision",
+        groupPath: "nested",
+        functionName: "conflict",
+      },
+    });
   });
 
   it("rebinds descendants when an enclosing component is installed", () => {
@@ -398,5 +412,28 @@ describe("published component contracts", () => {
     const codec = Component.schema(left, nestedId);
     expect(GenericId.scope(codec.ast)).toContain("left");
     expect(GenericId.scope(codec.ast)).not.toContain(parentScope);
+  });
+  it("reports an empty component scope as a tagged validation failure", () => {
+    expect(
+      Result.try(() => Component.make(spec, IdScope.app, ["items"])),
+    ).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "EmptyComponentScope", definitionScope: IdScope.app },
+    });
+  });
+
+  it("reports a plain function reference instead of an installed component", () => {
+    const reference = makeFunctionReference<"query">(
+      "items:get",
+    ) as unknown as Component.Api<typeof spec, "first">;
+    expect(Result.try(() => Component.bind(contract, reference))).toMatchObject(
+      {
+        _tag: "Failure",
+        failure: {
+          _tag: "UninstalledComponentReference",
+          definitionScope: scope,
+        },
+      },
+    );
   });
 });
