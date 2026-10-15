@@ -62,6 +62,7 @@ export declare const api: {
             required: string;
             unbound: string;
           };
+          host: { hostOnly: string; marker: string };
           second: {
             directRequired: string;
             hostOnly: string;

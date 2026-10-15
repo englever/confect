@@ -1,10 +1,12 @@
 import { FunctionImpl, GroupImpl } from "@confect/server";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { Rejected } from "../../components/counter/confect/counter.spec";
 import schema from "../_generated/schema";
 import { MutationRunner, QueryRunner } from "../_generated/services";
 import { first, second, left, right } from "../componentBindings";
+import env from "../env";
 import spec from "./components.spec";
 
 const exercise = FunctionImpl.make(schema, spec, "exercise", ({ run }) =>
@@ -149,6 +151,13 @@ const environment = FunctionImpl.make(schema, spec, "environment", () =>
     return {
       first: yield* query.runQuery(first.counter.environment, {}),
       second: yield* query.runQuery(second.counter.environment, {}),
+      host: {
+        marker: Option.getOrElse(yield* env.COMPONENT_MARKER, () => "unset"),
+        hostOnly: Option.getOrElse(
+          yield* env.COMPONENT_HOST_ONLY,
+          () => "unset",
+        ),
+      },
     };
   }).pipe(Effect.orDie),
 );

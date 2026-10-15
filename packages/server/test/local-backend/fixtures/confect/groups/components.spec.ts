@@ -106,7 +106,15 @@ export default GroupSpec.make()
   .addFunction(
     FunctionSpec.publicQuery({
       name: "environment",
-      returns: () => Schema.Struct({ first: Environment, second: Environment }),
+      returns: () =>
+        Schema.Struct({
+          first: Environment,
+          second: Environment,
+          host: Schema.Struct({
+            marker: Schema.String,
+            hostOnly: Schema.String,
+          }),
+        }),
     }),
   )
   .addFunction(

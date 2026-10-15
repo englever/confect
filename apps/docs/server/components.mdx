@@ -4,7 +4,7 @@ title: "Components"
 description: "Install Convex components, bind published Confect contracts, and author components with scoped IDs and Effect handlers."
 ---
 
-Convex [components](https://docs.convex.dev/components) are configured in `convex/convex.config.ts`, which is one of the files in the `convex/` directory that Confect does not manage. Configure components using the vanilla Convex API.
+Convex [components](https://docs.convex.dev/components) are configured in `convex/convex.config.ts`. Unless your backend has a [backend declaration](/server/backend-declaration), Confect does not manage that file, and you configure components with the vanilla Convex API. With a declaration, you mount components with `App.mount` in `confect/app.ts`, and `confect codegen` writes `convex/convex.config.ts` for you.
 
 ```ts convex/convex.config.ts
 import { defineApp } from "convex/server";

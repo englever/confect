@@ -6,6 +6,7 @@ import type * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Path from "effect/Path";
+import * as Predicate from "effect/Predicate";
 import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as String from "effect/String";
@@ -39,6 +40,33 @@ export interface InstalledComponent {
 }
 
 const COMPONENT_CONFIG_NAMESPACE = "confect-component-config";
+
+/**
+ * Where the plugin records how a definition was imported: the specifier as
+ * written and the file it resolved to. Codegen reads it to write the import of
+ * each mounted component into the generated `convex.config.ts`.
+ */
+export const COMPONENT_IMPORT_KEY = "~confect/componentImport";
+
+export interface ComponentImport {
+  readonly specifier: string;
+  readonly path: string;
+}
+
+export const componentImportOf = (
+  definition: unknown,
+): Option.Option<ComponentImport> => {
+  if (!Predicate.hasProperty(definition, COMPONENT_IMPORT_KEY)) {
+    return Option.none();
+  }
+  const recorded = definition[COMPONENT_IMPORT_KEY];
+  return Predicate.hasProperty(recorded, "specifier") &&
+    Predicate.isString(recorded.specifier) &&
+    Predicate.hasProperty(recorded, "path") &&
+    Predicate.isString(recorded.path)
+    ? Option.some({ specifier: recorded.specifier, path: recorded.path })
+    : Option.none();
+};
 
 /**
  * Matches the trailing `convex.config` segment of a component-definition import
@@ -139,7 +167,7 @@ export const componentConfigPlugin = (path: Path.Path): esbuild.Plugin => ({
           contents: Array.join(
             [
               `import real from ${JSON.stringify(args.path)};`,
-              `export default { ...real, componentDefinitionPath: ${JSON.stringify(componentDefinitionPath)}, defaultName: real._name };`,
+              `export default { ...real, componentDefinitionPath: ${JSON.stringify(componentDefinitionPath)}, defaultName: real._name, [${JSON.stringify(COMPONENT_IMPORT_KEY)}]: ${JSON.stringify({ specifier, path: args.path })} };`,
             ],
             "\n",
           ),

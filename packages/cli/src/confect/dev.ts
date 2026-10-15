@@ -51,6 +51,7 @@ import { ProjectRoot } from "../ProjectRoot";
 import { discoverTableFiles, TABLES_DIRNAME } from "../TableModule";
 import { generateAuthConfig, generateCrons, generateHttp } from "../utils";
 import { codegenHandler, loadPreviousFunctionPaths } from "./codegen";
+import { isDeclared } from "./declaration";
 import * as DirectoryOptions from "../DirectoryOptions";
 
 // Quiescence window: the sync loop waits this long for further signals
@@ -346,8 +347,13 @@ const syncLoop = Effect.fnUntraced(function* (
 
       yield* logPending("Dependencies may have changed, reloading…");
 
+      // A declared backend's `http.ts` and `auth.ts` feed full codegen, which
+      // writes their Convex files; the re-export writers below are for
+      // backends without `confect/app.ts`.
+      const declared = yield* isDeclared;
       if (
         pending.specDirty ||
+        (declared && (pending.httpDirty || pending.authDirty)) ||
         (pending.authDirty &&
           Match.value((yield* ConvexDirectory.target).kind).pipe(
             Match.when("app", () => false),
@@ -385,13 +391,13 @@ const syncLoop = Effect.fnUntraced(function* (
       }
 
       const dirtyOptionalFiles = [
-        ...(pending.httpDirty
+        ...(pending.httpDirty && !declared
           ? [syncOptionalFile(generateHttp, "http.ts")]
           : []),
         ...(pending.cronsDirty
           ? [syncOptionalFile(generateCrons, "crons.ts")]
           : []),
-        ...(pending.authDirty
+        ...(pending.authDirty && !declared
           ? [syncOptionalFile(generateAuthConfig, "auth.config.ts")]
           : []),
       ];
@@ -439,6 +445,8 @@ const discoverEntryPoints = Effect.gen(function* () {
   });
 
   const fixedEntryOptions = yield* Effect.all([
+    tryEntry("env.ts", "specDirty"),
+    tryEntry("app.ts", "specDirty"),
     tryEntry("http.ts", "httpDirty"),
     tryEntry("crons.ts", "cronsDirty"),
     tryEntry("auth.ts", "authDirty"),
@@ -460,7 +468,8 @@ const discoverEntryPoints = Effect.gen(function* () {
   const convexDirectory = yield* ConvexDirectory.get;
   const convexConfigEntryOption = yield* Effect.gen(function* () {
     const absolutePath = path.join(convexDirectory, CONVEX_CONFIG_FILENAME);
-    if (!(yield* fs.exists(absolutePath))) {
+    // A declared backend's `convex.config.ts` is codegen output, not input.
+    if ((yield* isDeclared) || !(yield* fs.exists(absolutePath))) {
       return Option.none<EntryPoint>();
     }
     return Option.some<EntryPoint>({
@@ -742,20 +751,31 @@ const convexConfigStructureWatcher = Effect.fnUntraced(function* (
     fs.watch(convexDirectory),
     Stream.debounce(Duration.millis(200)),
     Stream.runForEach((event) =>
-      path.relative(convexDirectory, event.path) === CONVEX_CONFIG_FILENAME
-        ? flipDirtyAndSignal(
-            pendingRef,
-            signal,
-            "specDirty",
-            restartQueue,
-            event._tag !== "Update",
-          )
-        : Effect.void,
+      Effect.gen(function* () {
+        // A declared backend's config is written by codegen itself; reacting
+        // to that write would rerun codegen for nothing.
+        if (
+          path.relative(convexDirectory, event.path) !==
+            CONVEX_CONFIG_FILENAME ||
+          (yield* isDeclared)
+        ) {
+          return;
+        }
+        yield* flipDirtyAndSignal(
+          pendingRef,
+          signal,
+          "specDirty",
+          restartQueue,
+          event._tag !== "Update",
+        );
+      }),
     ),
   );
 });
 
 const TOP_LEVEL_OPTIONAL_KEYS: ReadonlyMap<string, PendingKey> = new Map([
+  ["env.ts", "specDirty"],
+  ["app.ts", "specDirty"],
   ["http.ts", "httpDirty"],
   ["crons.ts", "cronsDirty"],
   ["auth.ts", "authDirty"],
