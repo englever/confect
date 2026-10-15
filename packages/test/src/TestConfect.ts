@@ -7,6 +7,7 @@ import type {
 } from "convex-test";
 import { convexTest } from "convex-test";
 import type {
+  GenericDataModel,
   GenericMutationCtx,
   GenericSchema,
   SchemaDefinition,
@@ -17,6 +18,16 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+
+/**
+ * Register a component's Convex schema and modules at its installation path.
+ */
+export type RegisterComponent =
+  TestConvexForDataModelAndIdentity<GenericDataModel>["registerComponent"];
+
+export type LayerOptions = {
+  readonly register?: (registerComponent: RegisterComponent) => void;
+};
 
 export type TestConfectWithoutIdentity<
   ConfectSchema extends DatabaseSchema.AnyWithProps,
@@ -270,12 +281,10 @@ export const layer = <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
   databaseSchema: DatabaseSchema_,
   convexSchemaDefinition: SchemaDefinition<GenericSchema, true>,
   modules: Record<string, () => Promise<any>>,
+  options: LayerOptions = {},
 ): Layer.Layer<TestConfect<DatabaseSchema_>> =>
-  Layer.sync(
-    TestConfect<DatabaseSchema_>(),
-    () =>
-      new TestConfectImpl(
-        databaseSchema,
-        convexTest(convexSchemaDefinition, modules) as any,
-      ),
-  );
+  Layer.sync(TestConfect<DatabaseSchema_>(), () => {
+    const testConvex = convexTest(convexSchemaDefinition, modules);
+    options.register?.((...args) => testConvex.registerComponent(...args));
+    return new TestConfectImpl(databaseSchema, testConvex as any);
+  });
