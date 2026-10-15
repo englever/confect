@@ -1,13 +1,17 @@
 import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
+import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { publishedPackages } from "./checkPackContents";
@@ -169,10 +173,6 @@ class CommandFailed extends Schema.TaggedError<CommandFailed>()(
   },
 ) {}
 
-const missingPackage = Schema.fromJsonString(
-  Schema.Struct({ error: Schema.Struct({ code: Schema.String }) }),
-);
-
 const run = Effect.fn("GithubPackages.command")(function* (
   command: readonly [string, ...Array<string>],
   cwd: string,
@@ -195,36 +195,26 @@ const run = Effect.fn("GithubPackages.command")(function* (
   return output.stdout;
 }, Effect.scoped);
 
-const readVersions = Effect.fn("GithubPackages.versions")(function* (
+export const readVersions = Effect.fn("GithubPackages.versions")(function* (
   name: string,
-  root: string,
 ) {
-  const stdout = yield* run(
-    [
-      "pnpm",
-      "view",
-      name,
-      "versions",
-      "--json",
-      "--registry",
-      "https://npm.pkg.github.com",
-    ],
-    root,
-  ).pipe(
-    Effect.catchTag("CommandFailed", (error) => {
-      const decoded = Schema.decodeOption(missingPackage)(error.stdout);
-      return Option.isSome(decoded) &&
-        ["ERR_PNPM_FETCH_404", "E404"].includes(decoded.value.error.code)
-        ? Effect.succeed("[]")
-        : Effect.fail(error);
-    }),
+  const token = yield* Config.Redacted("NODE_AUTH_TOKEN");
+  const response = yield* HttpClient.execute(
+    HttpClientRequest.get(
+      `https://npm.pkg.github.com/${name.replace("/", "%2F")}`,
+    ).pipe(HttpClientRequest.bearerToken(token), HttpClientRequest.acceptJson),
   );
-  const output = yield* Schema.decodeEffect(
-    Schema.fromJsonString(
-      Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+  if (response.status === 404) return [];
+  const metadata = yield* HttpClientResponse.filterStatusOk(response).pipe(
+    Effect.flatMap(
+      HttpClientResponse.schemaBodyJson(
+        Schema.Struct({
+          versions: Schema.Record(Schema.String, Schema.Unknown),
+        }),
+      ),
     ),
-  )(stdout);
-  return typeof output === "string" ? [output] : output;
+  );
+  return Object.keys(metadata.versions);
 });
 
 const stage = Effect.fn("GithubPackages.stage")(function* (
@@ -257,7 +247,7 @@ const stage = Effect.fn("GithubPackages.stage")(function* (
     (pkg) =>
       dryRun
         ? Effect.succeed([])
-        : readVersions(githubPackageName(pkg.manifest.name), root),
+        : readVersions(githubPackageName(pkg.manifest.name)),
     { concurrency: "unbounded" },
   );
   const selected = yield* Effect.fromResult(
@@ -329,7 +319,7 @@ if (import.meta.main) {
   } else {
     stage(destination, build, mode === "--dry-run").pipe(
       Effect.tapError((error) => Console.error(error)),
-      Effect.provide(BunServices.layer),
+      Effect.provide([BunServices.layer, FetchHttpClient.layer]),
       BunRuntime.runMain,
     );
   }
