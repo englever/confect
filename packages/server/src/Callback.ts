@@ -2,15 +2,16 @@ import * as Callback from "@confect/core/Callback";
 import * as MiddlewareSpec from "@confect/core/MiddlewareSpec";
 import * as Ref from "@confect/core/Ref";
 import {
-  compileArgsSchema,
   compileAst,
-  compileReturnsSchema,
+  UnsupportedPropertySignatureKeyTypeError,
 } from "@confect/core/SchemaToValidator";
 import { createFunctionHandle } from "convex/server";
 import { convexToJson, v, type GenericValidator } from "convex/values";
 import * as Array from "effect/Array";
 import * as Effect from "effect/Effect";
 import { pipe } from "effect/Function";
+import * as Number from "effect/Number";
+import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
@@ -18,9 +19,9 @@ import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
 
 /**
- * The host function's compiled validators differ from the contract's on one
- * side. `expected` and `actual` describe the contract's and the host's
- * validators, with union members in a fixed order.
+ * The host function does not satisfy the contract on one side. `expected` and
+ * `actual` describe the contract's and the host's validators, with union
+ * members in a fixed order, or the reason a schema is unsupported.
  */
 export class CallbackContractMismatch extends Schema.TaggedError<CallbackContractMismatch>()(
   "CallbackContractMismatch",
@@ -159,17 +160,46 @@ const errorAlternatives = (schema: Schema.Top): ReadonlyArray<Schema.Top> =>
     : [schema];
 
 /**
- * Error schemas are never compiled when a function is registered, since Convex
- * does not validate errors, so they may hold shapes no validator describes.
- * Those compile to a failure here.
+ * Compile args field by field, as registration does, so a recursive field does
+ * not widen the entire args object to `v.any()`.
  */
-const compileErrors = (schemas: ReadonlyArray<Schema.Top>) =>
-  schemas.map((schema) =>
-    Effect.runSync(Effect.result(compileAst(Schema.toEncoded(schema).ast))),
-  );
+const compileArgs = (ast: SchemaAST.Objects): ReturnType<typeof compileAst> =>
+  Effect.forEach(ast.propertySignatures, ({ name, type }) => {
+    if (typeof name !== "string") {
+      return Effect.fail(
+        new UnsupportedPropertySignatureKeyTypeError({ propertyKey: name }),
+      );
+    }
+    return Option.match(Number.parse(name), {
+      onSome: (propertyKey) =>
+        Effect.fail(
+          new UnsupportedPropertySignatureKeyTypeError({ propertyKey }),
+        ),
+      onNone: () => {
+        const optional = SchemaAST.isOptional(type);
+        return compileAst(type, optional).pipe(
+          Effect.map(
+            (validator) =>
+              [name, optional ? v.optional(validator) : validator] as const,
+          ),
+        );
+      },
+    });
+  }).pipe(Effect.map((fields) => v.object(Object.fromEntries(fields))));
 
-const describeErrors = (
-  compiled: ReturnType<typeof compileErrors>,
+const compileSchema = (schema: Schema.Top, side?: "args" | "returns") => {
+  const ast = Schema.toEncoded(schema).ast;
+  return Effect.runSync(
+    Effect.result(
+      side === "args" && SchemaAST.isObjects(ast)
+        ? compileArgs(ast)
+        : compileAst(ast),
+    ),
+  );
+};
+
+const describeCompiled = (
+  compiled: ReadonlyArray<ReturnType<typeof compileSchema>>,
 ): Schema.Json =>
   unionOf(
     keyed([
@@ -189,7 +219,7 @@ const describeErrors = (
  * check cannot see and compares as strings. Args and returns must be equal.
  * Every error the host may fail with, its middleware's included, must be one
  * the contract declares: the same schema, or one compiling to the same
- * validator.
+ * validator. The host may declare fewer errors.
  */
 const verify = (
   contract: Callback.Any,
@@ -210,16 +240,18 @@ const verify = (
     );
   const provenance = contract.functionProvenance;
 
-  const expectedArgs = describe(v.object(compileArgsSchema(provenance.args)));
-  const actualArgs = describe(v.object(compileArgsSchema(ref.args)));
-  if (JSON.stringify(expectedArgs) !== JSON.stringify(actualArgs)) {
-    return mismatch("args", expectedArgs, actualArgs);
-  }
-
-  const expectedReturns = describe(compileReturnsSchema(provenance.returns));
-  const actualReturns = describe(compileReturnsSchema(ref.returns));
-  if (JSON.stringify(expectedReturns) !== JSON.stringify(actualReturns)) {
-    return mismatch("returns", expectedReturns, actualReturns);
+  for (const side of ["args", "returns"] as const) {
+    const expected = compileSchema(provenance[side], side);
+    const actual = compileSchema(ref[side], side);
+    const expectedDescription = describeCompiled([expected]);
+    const actualDescription = describeCompiled([actual]);
+    if (
+      Result.isFailure(expected) ||
+      Result.isFailure(actual) ||
+      JSON.stringify(expectedDescription) !== JSON.stringify(actualDescription)
+    ) {
+      return mismatch(side, expectedDescription, actualDescription);
+    }
   }
 
   const declared = ownError(provenance).flatMap(errorAlternatives);
@@ -230,8 +262,8 @@ const verify = (
     .flatMap(errorAlternatives)
     .filter((schema) => !declared.includes(schema));
   if (undeclared.length > 0) {
-    const expectedErrors = compileErrors(declared);
-    const actualErrors = compileErrors(undeclared);
+    const expectedErrors = declared.map((schema) => compileSchema(schema));
+    const actualErrors = undeclared.map((schema) => compileSchema(schema));
     const keys = new Set(
       membersOf(Array.getSuccesses(expectedErrors)).map(([key]) => key),
     );
@@ -243,8 +275,8 @@ const verify = (
     ) {
       return mismatch(
         "error",
-        describeErrors(expectedErrors),
-        describeErrors(actualErrors),
+        describeCompiled(expectedErrors),
+        describeCompiled(actualErrors),
       );
     }
   }
@@ -254,12 +286,13 @@ const verify = (
 
 /**
  * Create a handle a component can store and run to call `ref` under `contract`.
- * A ref whose function type or wire encoding visibly differs from the contract
- * is a type error. Before asking Convex for the handle, a Confect ref's
- * compiled validators are compared with the contract's, and a difference fails
- * with `CallbackContractMismatch`. A plain Convex ref has no codecs to compile,
- * so only the type check applies to it. A ref to a function that is not
- * deployed is a defect.
+ * A ref whose function type, args or returns visibly differ from the contract
+ * on the wire, or whose errors are undeclared, is a type error. The host may
+ * declare fewer errors. Before asking Convex for the handle, a Confect ref's
+ * compiled validators are checked against the contract's. A mismatch or an
+ * unsupported schema fails with `CallbackContractMismatch`. A plain Convex ref
+ * has no codecs to compile, so only the type check applies to it. A ref to a
+ * function that is not deployed is a defect.
  */
 export const create = Effect.fn("Callback.create")(function* <
   Contract_ extends Callback.Any,

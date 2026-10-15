@@ -109,6 +109,120 @@ const mismatch = (
   );
 
 describe("create checks the host's validators", () => {
+  it.effect.each([
+    { side: "returns", unsupportedOn: "contract" },
+    { side: "returns", unsupportedOn: "host" },
+    { side: "returns", unsupportedOn: "both" },
+    { side: "args", unsupportedOn: "contract" },
+    { side: "args", unsupportedOn: "host" },
+    { side: "args", unsupportedOn: "both" },
+  ] as const)(
+    "fails with a tagged mismatch for unsupported $side schemas ($unsupportedOn)",
+    ({ side, unsupportedOn }) =>
+      Effect.gen(function* () {
+        const template = Schema.TemplateLiteral([Schema.String]);
+        const contractSchema =
+          unsupportedOn === "host" ? Schema.String : template;
+        const hostSchema =
+          unsupportedOn === "contract" ? Schema.String : template;
+        const Text = CoreCallback.mutation("counter/onText", {
+          args: () => (side === "args" ? { text: contractSchema } : {}),
+          returns: () => (side === "returns" ? contractSchema : Schema.Null),
+        });
+        const text = host(
+          FunctionSpec.internalMutation({
+            name: "text",
+            args: () => (side === "args" ? { text: hostSchema } : {}),
+            returns: () => (side === "returns" ? hostSchema : Schema.Null),
+          }),
+        );
+        const supported =
+          side === "args"
+            ? { kind: "object", fields: { text: { kind: "string" } } }
+            : { kind: "string" };
+        const unsupported = {
+          kind: "unsupported",
+          reason: "Unsupported schema type 'TemplateLiteral'",
+        };
+        const result = yield* created(Callback.create(Text, text));
+        expect(result).toEqual(
+          mismatch(
+            "counter/onText",
+            side,
+            unsupportedOn === "host" ? supported : unsupported,
+            unsupportedOn === "contract" ? supported : unsupported,
+          ),
+        );
+        if (Result.isFailure(result)) {
+          expect(result.failure.message).toContain(
+            "Unsupported schema type 'TemplateLiteral'",
+          );
+        }
+      }),
+  );
+
+  it.effect(
+    "refuses a host error outside the contract's declared set with an error-side mismatch",
+    () =>
+      Effect.gen(function* () {
+        const unrelated = host(
+          FunctionSpec.internalMutation({
+            name: "unrelated",
+            args: () => ({ run: Schema.String, status: Status }),
+            returns: () => Schema.Null,
+            error: () => Unrelated,
+          }),
+        );
+        expect(
+          // @ts-expect-error the host's Unrelated error is outside the contract's declared set
+          yield* created(Callback.create(OnEvent, unrelated)),
+        ).toEqual(
+          mismatch(
+            "counter/onEvent",
+            "error",
+            {
+              kind: "object",
+              fields: {
+                _tag: { kind: "literal", value: "EventRejected" },
+                reason: { kind: "string" },
+              },
+            },
+            {
+              kind: "object",
+              fields: {
+                _tag: { kind: "literal", value: "Unrelated" },
+                reason: { kind: "string" },
+              },
+            },
+          ),
+        );
+      }),
+  );
+
+  it.effect(
+    "accepts a host that declares a subset of the contract's errors",
+    () =>
+      Effect.gen(function* () {
+        const Declared = CoreCallback.mutation("counter/onDeclared", {
+          returns: () => Schema.Null,
+          error: () => Schema.Union([EventRejected, Unrelated]),
+        });
+        const subset = host(
+          FunctionSpec.internalMutation({
+            name: "subset",
+            returns: () => Schema.Null,
+            error: () => EventRejected,
+          }),
+        );
+        const handle = Result.getOrThrow(
+          yield* created(Callback.create(Declared, subset)),
+        );
+        expect(Ref.getFunctionReference(handle)).toBe(
+          "function://;callbacks:onEvent",
+        );
+      }),
+  );
+
   it.effect("refuses args fields the types cannot see", () =>
     Effect.gen(function* () {
       const contractArgs: Record<string, typeof Schema.String> = {
@@ -134,6 +248,45 @@ describe("create checks the host's validators", () => {
           "args",
           { kind: "object", fields: { wanted: { kind: "string" } } },
           { kind: "object", fields: { other: { kind: "string" } } },
+        ),
+      );
+    }),
+  );
+
+  it.effect("preserves args field checks alongside recursive schemas", () =>
+    Effect.gen(function* () {
+      const tree = Schema.suspend(() => Schema.String);
+      const contractArgs: Record<string, Schema.Codec<string>> = {
+        wanted: Schema.String,
+        tree,
+      };
+      const hostArgs: Record<string, Schema.Codec<string>> = {
+        other: Schema.String,
+        tree,
+      };
+      const Keyed = CoreCallback.mutation("counter/onKeyed", {
+        args: () => contractArgs,
+        returns: () => Schema.Null,
+      });
+      const keyed = host(
+        FunctionSpec.internalMutation({
+          name: "keyed",
+          args: () => hostArgs,
+          returns: () => Schema.Null,
+        }),
+      );
+      expect(yield* created(Callback.create(Keyed, keyed))).toEqual(
+        mismatch(
+          "counter/onKeyed",
+          "args",
+          {
+            kind: "object",
+            fields: { wanted: { kind: "string" }, tree: { kind: "any" } },
+          },
+          {
+            kind: "object",
+            fields: { other: { kind: "string" }, tree: { kind: "any" } },
+          },
         ),
       );
     }),
@@ -270,7 +423,7 @@ describe("create checks the host's validators", () => {
   );
 
   it.effect(
-    "accepts reordered unions, fewer errors and component IDs typed by the host",
+    "accepts reordered unions and component IDs when the host declares fewer contract errors",
     () =>
       Effect.gen(function* () {
         const definition = IdScope.component("counter");
