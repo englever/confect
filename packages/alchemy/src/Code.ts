@@ -5,6 +5,7 @@ import type * as Redacted from "effect/Redacted";
 import type { Providers } from "./Providers";
 import { deploy } from "./internal/CodeDeployment";
 import { CommandRunner, type PrepareCommand } from "./internal/CommandRunner";
+import { PushLock } from "./internal/PushLock";
 
 export interface CodeProps {
   readonly deployment: { readonly name: string; readonly url: string };
@@ -29,11 +30,15 @@ export const Code = Resource<Code>("Convex.Code");
 
 export const provider = Effect.gen(function* () {
   const runner = yield* CommandRunner;
+  const lock = yield* PushLock;
   return {
     read: ({ output }) => Effect.succeed(output),
     diff: () => Effect.succeed({ action: "update" }),
     reconcile: ({ news }) =>
-      deploy(news).pipe(Effect.provideService(CommandRunner, runner)),
+      deploy(news).pipe(
+        Effect.provideService(CommandRunner, runner),
+        Effect.provideService(PushLock, lock),
+      ),
     delete: () => Effect.void,
   } satisfies Provider.ProviderServiceInput<Code>;
 });

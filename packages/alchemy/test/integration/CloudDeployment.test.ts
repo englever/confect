@@ -29,6 +29,7 @@ import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { describe, expect } from "@effect/vitest";
 import { CommandRunner } from "../../src/internal/CommandRunner";
+import { PushLock } from "../../src/internal/PushLock";
 import {
   mockClient,
   project as existingProject,
@@ -76,6 +77,11 @@ const makeHarness = (
     ),
     Layer.provide(client),
     Layer.provide(runner),
+    Layer.provide(
+      Layer.succeed(PushLock, {
+        withLock: (_deploymentName, effect) => effect,
+      }),
+    ),
   );
   const state = inMemoryState();
   const deploy = <A, E, R extends Providers | Stack.StackServices>(

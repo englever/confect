@@ -8,6 +8,7 @@ import * as DeployKey from "./DeployKey";
 import * as EnvironmentVariables from "./EnvironmentVariables";
 import * as Project from "./Project";
 import * as CommandRunner from "./internal/CommandRunner";
+import * as PushLock from "./internal/PushLock";
 
 export class Providers extends Provider.ProviderCollection<Providers>()(
   "@confect/alchemy/Providers",
@@ -40,4 +41,5 @@ export const providers = (options?: Parameters<typeof ConvexClient.layer>[0]) =>
       ConvexClient.layer(options).pipe(Layer.provide(FetchHttpClient.layer)),
     ),
     Layer.provide(CommandRunner.layer),
+    Layer.provide(PushLock.layer()),
   );

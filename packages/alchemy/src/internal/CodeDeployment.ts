@@ -1,32 +1,84 @@
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type { CodeProps } from "../Code";
-import { CommandRunner } from "./CommandRunner";
+import { CommandRunner, type PushTarget } from "./CommandRunner";
+import { PushLock } from "./PushLock";
 
 export class InvalidDeploymentTarget extends Schema.TaggedError<InvalidDeploymentTarget>()(
   "InvalidDeploymentTarget",
   { reason: Schema.Literals(["deployment", "deployKey"]) },
 ) {}
 
-export const deploy = Effect.fn("Code.deploy")(function* (props: CodeProps) {
+export type DeploymentMode = "cloud" | "local";
+
+const deploymentName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const cloudTarget = (
+  props: CodeProps,
+): Result.Result<PushTarget, InvalidDeploymentTarget> => {
+  const { name, url } = props.deployment;
   if (
-    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(props.deployment.name) ||
+    !deploymentName.test(name) ||
     !new RegExp(
-      `^https://${props.deployment.name}(?:\\.[a-z]{2}-[a-z]+-[0-9]+)?\\.convex\\.cloud$`,
-    ).test(props.deployment.url)
-  ) {
-    return yield* new InvalidDeploymentTarget({ reason: "deployment" });
-  }
+      `^https://${name}(?:\\.[a-z]{2}-[a-z]+-[0-9]+)?\\.convex\\.cloud$`,
+    ).test(url)
+  )
+    return Result.fail(new InvalidDeploymentTarget({ reason: "deployment" }));
   const key =
     /^(?:dev|prod|preview|custom):([a-z0-9]+(?:-[a-z0-9]+)*)\|[a-zA-Z0-9+/=_-]+$/.exec(
       Redacted.value(props.deployKey),
     );
-  if (!key || key[1] !== props.deployment.name) {
-    return yield* new InvalidDeploymentTarget({ reason: "deployKey" });
-  }
+  if (!key || key[1] !== name)
+    return Result.fail(new InvalidDeploymentTarget({ reason: "deployKey" }));
+  return Result.succeed({
+    _tag: "Cloud",
+    deploymentName: name,
+    deployKey: props.deployKey,
+  });
+};
+
+const localTarget = (
+  props: CodeProps,
+): Result.Result<PushTarget, InvalidDeploymentTarget> => {
+  const { name, url } = props.deployment;
+  if (
+    !deploymentName.test(name) ||
+    !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(url)
+  )
+    return Result.fail(new InvalidDeploymentTarget({ reason: "deployment" }));
+  const key = /^([a-z0-9]+(?:-[a-z0-9]+)*)\|[0-9a-f]+$/.exec(
+    Redacted.value(props.deployKey),
+  );
+  if (!key || key[1] !== name)
+    return Result.fail(new InvalidDeploymentTarget({ reason: "deployKey" }));
+  return Result.succeed({
+    _tag: "SelfHosted",
+    deploymentName: name,
+    url,
+    adminKey: props.deployKey,
+  });
+};
+
+const targets = { cloud: cloudTarget, local: localTarget } satisfies Record<
+  DeploymentMode,
+  (props: CodeProps) => Result.Result<PushTarget, InvalidDeploymentTarget>
+>;
+
+export const deploy = Effect.fn("Code.deploy")(function* (
+  props: CodeProps,
+  mode: DeploymentMode = "cloud",
+) {
+  const target = yield* Effect.fromResult(targets[mode](props));
   const runner = yield* CommandRunner;
-  if (props.prepare) yield* runner.prepare(props.prepare, props.cwd);
-  yield* runner.deploy(props.deployKey, props.cwd);
+  const lock = yield* PushLock;
+  yield* lock.withLock(
+    target.deploymentName,
+    Effect.gen(function* () {
+      if (props.prepare) yield* runner.prepare(props.prepare, props.cwd);
+      yield* runner.deploy(target, props.cwd);
+    }),
+  );
   return { name: props.deployment.name, url: props.deployment.url };
 });

@@ -13,6 +13,28 @@ export interface PrepareCommand {
   readonly args: ReadonlyArray<string>;
 }
 
+/**
+ * Where a push goes: a cloud deployment through its deploy key, or a local
+ * backend through the CLI's self-hosted target and its admin key.
+ */
+export type PushTarget =
+  | {
+      readonly _tag: "Cloud";
+      readonly deploymentName: string;
+      readonly deployKey: Redacted.Redacted<string>;
+    }
+  | {
+      readonly _tag: "SelfHosted";
+      readonly deploymentName: string;
+      readonly url: string;
+      readonly adminKey: Redacted.Redacted<string>;
+    };
+
+const selection = (target: PushTarget) =>
+  target._tag === "Cloud"
+    ? `CONVEX_DEPLOY_KEY=${Redacted.value(target.deployKey)}\n`
+    : `CONVEX_SELF_HOSTED_URL=${target.url}\nCONVEX_SELF_HOSTED_ADMIN_KEY=${Redacted.value(target.adminKey)}\n`;
+
 export class CommandError extends Schema.TaggedError<CommandError>()(
   "CommandError",
   {
@@ -30,7 +52,7 @@ export class CommandRunner extends Context.Service<
       cwd?: string,
     ) => Effect.Effect<void, CommandError>;
     readonly deploy: (
-      deployKey: Redacted.Redacted<string>,
+      target: PushTarget,
       cwd?: string,
     ) => Effect.Effect<void, CommandError>;
   }
@@ -168,7 +190,7 @@ export const layer = Layer.effect(
         }
       }),
       deploy: Effect.fn("CommandRunner.deploy")(function* (
-        deployKey,
+        target,
         cwd = process.cwd(),
       ) {
         const directory = path.resolve(cwd);
@@ -188,11 +210,9 @@ export const layer = Layer.effect(
               prefix: "confect-deploy-",
             });
             const envFile = path.join(temp, "deployment.env");
-            yield* fs.writeFileString(
-              envFile,
-              `CONVEX_DEPLOY_KEY=${Redacted.value(deployKey)}\n`,
-              { mode: 0o600 },
-            );
+            yield* fs.writeFileString(envFile, selection(target), {
+              mode: 0o600,
+            });
             yield* run(
               "deploy",
               process.execPath,

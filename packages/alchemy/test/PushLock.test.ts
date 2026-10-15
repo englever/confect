@@ -7,12 +7,15 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   PushLock,
   PushLockError,
   layer as lockLayer,
 } from "../src/internal/PushLock";
+
+const serialize = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const withDotAlchemy = <A, E, R>(
   effect: (paths: {
@@ -72,7 +75,7 @@ describe("PushLock", () => {
         const lock = yield* PushLock;
         yield* fs.writeFileString(
           lockFile,
-          JSON.stringify({ pid: process.pid, token: "other-process" }),
+          serialize({ pid: process.pid, token: "other-process" }),
         );
         let entered = false;
         const fiber = yield* lock
@@ -99,7 +102,7 @@ describe("PushLock", () => {
         const lock = yield* PushLock;
         yield* fs.writeFileString(
           lockFile,
-          JSON.stringify({ pid: yield* deadPid, token: "crashed" }),
+          serialize({ pid: yield* deadPid, token: "crashed" }),
         );
         expect(
           yield* lock.withLock("happy-otter-123", Effect.succeed("pushed")),
@@ -116,7 +119,7 @@ describe("PushLock", () => {
         const lock = yield* PushLock;
         yield* fs.writeFileString(
           lockFile,
-          JSON.stringify({ pid: process.pid, token: "other-process" }),
+          serialize({ pid: process.pid, token: "other-process" }),
         );
         const result = yield* lock
           .withLock("happy-otter-123", Effect.void)
