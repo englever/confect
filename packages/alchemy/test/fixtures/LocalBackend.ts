@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -23,9 +24,11 @@ export interface ServedBackend {
  * Stands in for the backend binary and the network. `keygen` prints a fresh
  * admin key per call; a served backend answers `/instance_name` on its port
  * until its scope closes; `answers` lets a test put another program on a port.
+ * Node commands (codegen, `convex deploy`) succeed and record the push target.
  */
 export const fakeBackend = (options?: { readonly exitCode?: number }) => {
   const served: ServedBackend[] = [];
+  const pushes: string[] = [];
   const downloads: string[] = [];
   const answers = new Map<string, string>();
   let keys = 0;
@@ -38,7 +41,13 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
         const args = command.args;
         const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
         let stdout = Stream.empty as Stream.Stream<Uint8Array>;
-        if (args[0] === "keygen") {
+        if (command.command === process.execPath) {
+          if (args[1] === "deploy")
+            pushes.push(
+              readFileSync(args[args.indexOf("--env-file") + 1], "utf8"),
+            );
+          yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+        } else if (args[0] === "keygen") {
           keys++;
           const name = args[args.indexOf("--instance-name") + 1];
           stdout = Stream.make(
@@ -110,6 +119,7 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
   return {
     layer: Layer.mergeAll(spawner, http),
     served,
+    pushes,
     downloads,
     answers,
   };
