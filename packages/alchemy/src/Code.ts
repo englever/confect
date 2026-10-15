@@ -1,9 +1,10 @@
 import * as Provider from "alchemy/Provider";
+import type { ProviderMode } from "alchemy/ProviderMode";
 import { Resource } from "alchemy/Resource";
 import * as Effect from "effect/Effect";
 import type * as Redacted from "effect/Redacted";
 import type { Providers } from "./Providers";
-import { deploy, type DeploymentMode } from "./internal/CodeDeployment";
+import { deploy } from "./internal/CodeDeployment";
 import { CommandRunner, type PrepareCommand } from "./internal/CommandRunner";
 import { PushLock } from "./internal/PushLock";
 
@@ -28,7 +29,7 @@ export type Code = Resource<
 >;
 export const Code = Resource<Code>("Convex.Code");
 
-const make = (mode: DeploymentMode) =>
+const make = (mode: ProviderMode) =>
   Effect.gen(function* () {
     const runner = yield* CommandRunner;
     const lock = yield* PushLock;
@@ -44,7 +45,7 @@ const make = (mode: DeploymentMode) =>
     } satisfies Provider.ProviderServiceInput<Code>;
   });
 
-export const provider = make("cloud");
+export const provider = make("live");
 /**
  * Under `alchemy dev`, pushes go to the local backend's self-hosted target.
  */

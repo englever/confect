@@ -1,4 +1,4 @@
-import { createServer, type AddressInfo, type Server } from "node:net";
+import { createServer, type Server } from "node:net";
 import { dotAlchemyDirectory } from "alchemy/AlchemyContext";
 import { Stack } from "alchemy/Stack";
 import * as Config from "effect/Config";
@@ -10,15 +10,20 @@ import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { processEnvironment } from "./CommandRunner";
+import * as FileLock from "./FileLock";
+import * as Loopback from "./Loopback";
+import { userCache } from "./UserCache";
 import { extract } from "./Zip";
 
 /**
- * The backend release every local deployment runs. A data directory records the
- * release that created it and is never upgraded in place.
+ * The backend release a new local deployment runs. An existing data directory
+ * keeps running the release that created it, so upgrading this package never
+ * opens a database with a different release.
  */
 export const backendVersion = "precompiled-2026-10-06-a3538c6";
 
@@ -38,15 +43,6 @@ export class LocalBackendError extends Schema.TaggedError<LocalBackendError>()(
       "timeout",
     ]),
     exitCode: Schema.optionalKey(Schema.Finite),
-  },
-) {}
-
-export class LocalBackendVersionChange extends Schema.TaggedError<LocalBackendVersionChange>()(
-  "LocalBackendVersionChange",
-  {
-    deploymentName: Schema.String,
-    current: Schema.String,
-    requested: Schema.String,
   },
 ) {}
 
@@ -87,8 +83,6 @@ const executable =
     ? "convex-local-backend.exe"
     : "convex-local-backend";
 
-const loopback = (port: number) => `http://127.0.0.1:${port}`;
-
 const listen = (port: number) =>
   Effect.callback<Server | undefined>((resume) => {
     const server = createServer();
@@ -107,6 +101,17 @@ const isFree = (port: number) =>
       server ? close(server).pipe(Effect.as(true)) : Effect.succeed(false),
     ),
   );
+
+const portOf = (server: Server | undefined) => {
+  const address = server?.address();
+  return typeof address === "object" && address !== null
+    ? address.port
+    : undefined;
+};
+
+// Backends in one process start one at a time, so two deployments starting
+// together never probe and claim the same ports.
+const startup = Semaphore.makeUnsafe(1);
 
 /**
  * Resolves the directory that holds one local deployment's identity, database,
@@ -174,17 +179,59 @@ export const remove = Effect.fn("LocalBackend.remove")(function* (
 });
 
 /**
+ * Install a backend release into the Convex CLI's binary cache,
+ * `<cache>/convex/binaries/<version>/`, unless it is already there.
+ */
+const install = Effect.fn("LocalBackend.install")(function* (
+  deploymentName: string,
+  version: string,
+  cache: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const http = yield* HttpClient.HttpClient;
+  const failed = () =>
+    new LocalBackendError({ deploymentName, reason: "install" });
+  const binaries = path.join(cache, "convex", "binaries");
+  const binary = path.join(binaries, version, executable);
+  const artifact = artifacts[`${process.platform}-${process.arch}`];
+  return yield* Effect.gen(function* () {
+    if (yield* fs.exists(binary)) return binary;
+    if (artifact === undefined) return yield* failed();
+    yield* fs.makeDirectory(binaries, { recursive: true });
+    const temp = yield* fs.makeTempDirectoryScoped({
+      directory: binaries,
+      prefix: ".download-",
+    });
+    const archive = path.join(temp, artifact);
+    const response = yield* http.get(
+      `https://github.com/get-convex/convex-backend/releases/download/${version}/${artifact}`,
+    );
+    if (response.status !== 200) return yield* failed();
+    yield* response.stream.pipe(Stream.run(fs.sink(archive)));
+    const extracted = path.join(temp, executable);
+    yield* extract(archive, executable, extracted);
+    yield* fs.chmod(extracted, 0o755);
+    yield* fs.makeDirectory(path.dirname(binary), { recursive: true });
+    yield* fs.rename(extracted, binary);
+    return binary;
+  }).pipe(Effect.scoped, Effect.mapError(failed));
+});
+
+/**
  * Boot the local backend for one deployment and keep it running for the ambient
- * scope. The first boot installs the pinned release, generates an instance
- * secret and admin key, and picks two free loopback ports; later boots reuse
- * all of them so stored credentials and URLs stay valid.
+ * scope, which also holds the data directory's `owner.lock`. The first boot
+ * installs the pinned release, generates an instance secret and admin key, and
+ * picks two free loopback ports; later boots reuse all of them, so stored
+ * credentials and URLs stay valid. A saved port that something else now holds
+ * is an error rather than a move, because resources keep the URL.
  */
 export const boot = Effect.fn("LocalBackend.boot")(function* (
   deploymentName: string,
   directory: string,
 ) {
-  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
   const http = yield* HttpClient.HttpClient;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const crypto = yield* Crypto.Crypto;
@@ -196,9 +243,15 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
     });
   const settings = yield* Config.all({
     environment: processEnvironment,
-    LOCALAPPDATA: Config.String("LOCALAPPDATA").pipe(Config.withDefault("")),
     ports: Config.String("CONFECT_LOCAL_BACKEND_PORTS").pipe(Config.option),
   }).pipe(Effect.mapError(() => fail("configuration")));
+  const cache = yield* userCache.pipe(
+    Effect.mapError(() => fail("configuration")),
+  );
+  if (Option.isNone(cache)) return yield* fail("configuration");
+  const range = Option.map(settings.ports, Loopback.parsePortRange);
+  if (Option.isSome(range) && Option.isNone(range.value))
+    return yield* fail("configuration");
   const env = {
     ...settings.environment,
     DISABLE_BEACON: "1",
@@ -213,64 +266,20 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
       Effect.orElseSucceed(() => undefined),
     );
 
-  const { HOME, USERPROFILE } = settings.environment;
-  const cache =
-    process.platform === "win32"
-      ? settings.LOCALAPPDATA ||
-        (USERPROFILE && path.join(USERPROFILE, "AppData", "Local"))
-      : HOME && path.join(HOME, ".cache");
-  if (!cache || !path.isAbsolute(cache)) return yield* fail("configuration");
-  const install = Effect.gen(function* () {
-    const binaries = path.join(cache, "convex", "binaries");
-    const binary = path.join(binaries, backendVersion, executable);
-    if (yield* fs.exists(binary)) return binary;
-    const artifact = artifacts[`${process.platform}-${process.arch}`];
-    if (artifact === undefined) return yield* fail("install");
-    yield* fs.makeDirectory(binaries, { recursive: true });
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        const temp = yield* fs.makeTempDirectoryScoped({
-          directory: binaries,
-          prefix: ".download-",
-        });
-        const archive = path.join(temp, artifact);
-        const response = yield* http.get(
-          `https://github.com/get-convex/convex-backend/releases/download/${backendVersion}/${artifact}`,
-        );
-        if (response.status !== 200) return yield* fail("install");
-        yield* response.stream.pipe(Stream.run(fs.sink(archive)));
-        const extracted = path.join(temp, executable);
-        yield* extract(archive, executable, extracted);
-        yield* fs.chmod(extracted, 0o755);
-        yield* fs.makeDirectory(path.dirname(binary), { recursive: true });
-        yield* fs.rename(extracted, binary);
-      }),
-    );
-    return binary;
-  }).pipe(Effect.mapError(() => fail("install")));
-
   const allocate = Effect.gen(function* () {
-    if (Option.isNone(settings.ports)) {
+    if (Option.isNone(range) || Option.isNone(range.value)) {
       const servers = [yield* listen(0), yield* listen(0)];
-      const ports = servers.map(
-        (server) => (server?.address() as AddressInfo | null)?.port,
-      );
       yield* Effect.forEach(servers, (server) =>
         server ? close(server) : Effect.void,
       );
-      const [port, sitePort] = ports;
+      const [port, sitePort] = servers.map(portOf);
       if (port === undefined || sitePort === undefined)
         return yield* fail("ports");
       return { port, sitePort };
     }
-    const range = /^([0-9]+)-([0-9]+)$/.exec(settings.ports.value);
-    if (!range) return yield* fail("configuration");
     const free: number[] = [];
-    for (
-      let port = Number(range[1]);
-      port <= Number(range[2]) && free.length < 2;
-      port++
-    ) {
+    const { from, to } = range.value.value;
+    for (let port = from; port <= to && free.length < 2; port++) {
       if (yield* isFree(port)) free.push(port);
     }
     const [port, sitePort] = free;
@@ -279,138 +288,150 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
     return { port, sitePort };
   });
 
-  const binary = yield* install;
-  const saved = yield* readIdentity(deploymentName, directory);
-  if (Option.isSome(saved) && saved.value.version !== backendVersion)
-    return yield* new LocalBackendVersionChange({
-      deploymentName,
-      current: saved.value.version,
-      requested: backendVersion,
-    });
+  const generate = (binary: string) =>
+    Effect.gen(function* () {
+      const instanceSecret = Buffer.from(
+        yield* crypto.randomBytes(32),
+      ).toString("hex");
+      const output = yield* spawner.string(
+        ChildProcess.make(
+          binary,
+          [
+            "keygen",
+            "admin-key",
+            "--instance-name",
+            deploymentName,
+            "--instance-secret",
+            instanceSecret,
+          ],
+          { env, extendEnv: false, stdin: "ignore", stderr: "ignore" },
+        ),
+      );
+      const key = output.trim();
+      if (!key.startsWith(`${deploymentName}|`)) return yield* fail("identity");
+      return { instanceSecret, adminKey: key };
+    }).pipe(
+      Effect.catchTag("PlatformError", () => Effect.fail(fail("identity"))),
+    );
 
-  let ports: { readonly port: number; readonly sitePort: number } | undefined;
-  if (Option.isSome(saved)) {
-    if (
-      (yield* isFree(saved.value.port)) &&
-      (yield* isFree(saved.value.sitePort))
-    )
-      ports = saved.value;
-    else if ((yield* answer(loopback(saved.value.port))) === deploymentName)
-      return yield* fail("running");
-  }
-  ports ??= yield* allocate;
+  yield* FileLock.acquire(path.join(directory, "owner.lock")).pipe(
+    Effect.mapError((error) =>
+      fail(error.reason === "held" ? "running" : "filesystem"),
+    ),
+  );
 
-  const credentials = Option.isSome(saved)
-    ? saved.value
-    : yield* Effect.gen(function* () {
-        const instanceSecret = Buffer.from(
-          yield* crypto.randomBytes(32),
-        ).toString("hex");
-        const output = yield* spawner.string(
+  return yield* startup.withPermits(1)(
+    Effect.gen(function* () {
+      const saved = yield* readIdentity(deploymentName, directory);
+      const version = Option.isSome(saved)
+        ? saved.value.version
+        : backendVersion;
+      const binary = yield* install(deploymentName, version, cache.value);
+      let ports: { readonly port: number; readonly sitePort: number };
+      if (Option.isSome(saved)) {
+        const { port, sitePort } = saved.value;
+        if (!(yield* isFree(port)) || !(yield* isFree(sitePort)))
+          return yield* fail(
+            (yield* answer(Loopback.origin(port))) === deploymentName
+              ? "running"
+              : "ports",
+          );
+        ports = saved.value;
+      } else {
+        ports = yield* allocate;
+      }
+      const credentials = Option.isSome(saved)
+        ? saved.value
+        : yield* generate(binary);
+      const identity: Identity = {
+        name: deploymentName,
+        version,
+        instanceSecret: credentials.instanceSecret,
+        adminKey: credentials.adminKey,
+        port: ports.port,
+        sitePort: ports.sitePort,
+      };
+      yield* Effect.gen(function* () {
+        const file = path.join(directory, "identity.json");
+        const temp = `${file}.${process.pid}.tmp`;
+        yield* fs.writeFileString(
+          temp,
+          yield* Schema.encodeEffect(Identity)(identity),
+          { mode: 0o600 },
+        );
+        yield* fs.rename(temp, file);
+      }).pipe(Effect.mapError(() => fail("identity")));
+
+      const url = Loopback.origin(identity.port);
+      const siteUrl = Loopback.origin(identity.sitePort);
+      const handle = yield* spawner
+        .spawn(
           ChildProcess.make(
             binary,
             [
-              "keygen",
-              "admin-key",
+              "--interface",
+              "127.0.0.1",
+              "--port",
+              String(identity.port),
+              "--site-proxy-port",
+              String(identity.sitePort),
               "--instance-name",
               deploymentName,
               "--instance-secret",
-              instanceSecret,
+              identity.instanceSecret,
+              "--convex-origin",
+              url,
+              "--convex-site",
+              siteUrl,
+              "--local-storage",
+              path.join(directory, "convex_local_storage"),
+              "--disable-beacon",
+              path.join(directory, "convex_local_backend.sqlite3"),
             ],
-            { env, extendEnv: false, stdin: "ignore", stderr: "ignore" },
+            {
+              cwd: directory,
+              env,
+              extendEnv: false,
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "ignore",
+            },
           ),
-        );
-        const key = output.trim();
-        if (!key.startsWith(`${deploymentName}|`))
-          return yield* fail("identity");
-        return { instanceSecret, adminKey: key };
-      }).pipe(
-        Effect.catchTag("PlatformError", () => Effect.fail(fail("identity"))),
+        )
+        .pipe(Effect.mapError(() => fail("spawn")));
+
+      const ready = answer(url).pipe(
+        Effect.flatMap((name) =>
+          name === undefined || name === deploymentName
+            ? Effect.succeed(name === deploymentName)
+            : Effect.fail(fail("ports")),
+        ),
+        Effect.repeat({
+          until: (isReady) => isReady,
+          schedule: Schedule.spaced("100 millis"),
+        }),
       );
-
-  const identity: Identity = {
-    name: deploymentName,
-    version: backendVersion,
-    instanceSecret: credentials.instanceSecret,
-    adminKey: credentials.adminKey,
-    port: ports.port,
-    sitePort: ports.sitePort,
-  };
-  yield* Effect.gen(function* () {
-    yield* fs.makeDirectory(directory, { recursive: true });
-    const file = path.join(directory, "identity.json");
-    const temp = `${file}.${process.pid}.tmp`;
-    yield* fs.writeFileString(
-      temp,
-      yield* Schema.encodeEffect(Identity)(identity),
-      { mode: 0o600 },
-    );
-    yield* fs.rename(temp, file);
-  }).pipe(Effect.mapError(() => fail("identity")));
-
-  const url = loopback(identity.port);
-  const siteUrl = loopback(identity.sitePort);
-  const handle = yield* spawner
-    .spawn(
-      ChildProcess.make(
-        binary,
-        [
-          "--interface",
-          "127.0.0.1",
-          "--port",
-          String(identity.port),
-          "--site-proxy-port",
-          String(identity.sitePort),
-          "--instance-name",
-          deploymentName,
-          "--instance-secret",
-          identity.instanceSecret,
-          "--convex-origin",
-          url,
-          "--convex-site",
-          siteUrl,
-          "--local-storage",
-          path.join(directory, "convex_local_storage"),
-          "--disable-beacon",
-          path.join(directory, "convex_local_backend.sqlite3"),
-        ],
-        {
-          cwd: directory,
-          env,
-          extendEnv: false,
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "ignore",
-        },
-      ),
-    )
-    .pipe(Effect.mapError(() => fail("spawn")));
-
-  const ready = answer(url).pipe(
-    Effect.flatMap((name) =>
-      name === undefined || name === deploymentName
-        ? Effect.succeed(name === deploymentName)
-        : Effect.fail(fail("ports")),
-    ),
-    Effect.repeat({
-      until: (isReady) => isReady,
-      schedule: Schedule.spaced("100 millis"),
+      const exit = handle.exitCode.pipe(
+        Effect.mapError(() => fail("exit")),
+        Effect.flatMap((code) => Effect.fail(fail("exit", Number(code)))),
+      );
+      // A backend that fails to become ready is stopped here: the instance
+      // scope that owns it stays open after a failed start.
+      yield* Effect.raceFirst(ready, exit).pipe(
+        Effect.timeoutOrElse({
+          duration: "60 seconds",
+          orElse: () => Effect.fail(fail("timeout")),
+        }),
+        Effect.tapError(() =>
+          handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.ignore),
+        ),
+      );
+      return {
+        url,
+        siteUrl,
+        adminKey: Redacted.make(identity.adminKey),
+        exited: handle.exitCode.pipe(Effect.ignore),
+      } satisfies LocalBackend;
     }),
   );
-  const exit = handle.exitCode.pipe(
-    Effect.mapError(() => fail("exit")),
-    Effect.flatMap((code) => Effect.fail(fail("exit", Number(code)))),
-  );
-  yield* Effect.raceFirst(ready, exit).pipe(
-    Effect.timeoutOrElse({
-      duration: "60 seconds",
-      orElse: () => Effect.fail(fail("timeout")),
-    }),
-  );
-  return {
-    url,
-    siteUrl,
-    adminKey: Redacted.make(identity.adminKey),
-    exited: handle.exitCode.pipe(Effect.ignore),
-  } satisfies LocalBackend;
 });

@@ -633,9 +633,7 @@ describe("ConvexClient", () => {
         expect(http.requests).toHaveLength(1);
       }).pipe(
         Effect.provide(
-          ConvexClient.layer({ deployments: "local" }).pipe(
-            Layer.provide(http.layer),
-          ),
+          ConvexClient.layer({ mode: "local" }).pipe(Layer.provide(http.layer)),
         ),
       );
     },

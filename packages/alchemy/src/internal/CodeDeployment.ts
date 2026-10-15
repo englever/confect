@@ -1,17 +1,17 @@
+import type { ProviderMode } from "alchemy/ProviderMode";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type { CodeProps } from "../Code";
 import { CommandRunner, type PushTarget } from "./CommandRunner";
+import * as Loopback from "./Loopback";
 import { PushLock } from "./PushLock";
 
 export class InvalidDeploymentTarget extends Schema.TaggedError<InvalidDeploymentTarget>()(
   "InvalidDeploymentTarget",
   { reason: Schema.Literals(["deployment", "deployKey"]) },
 ) {}
-
-export type DeploymentMode = "cloud" | "local";
 
 const deploymentName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -43,10 +43,7 @@ const localTarget = (
   props: CodeProps,
 ): Result.Result<PushTarget, InvalidDeploymentTarget> => {
   const { name, url } = props.deployment;
-  if (
-    !deploymentName.test(name) ||
-    !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(url)
-  )
+  if (!deploymentName.test(name) || !Loopback.isOrigin(url))
     return Result.fail(new InvalidDeploymentTarget({ reason: "deployment" }));
   const key = /^([a-z0-9]+(?:-[a-z0-9]+)*)\|[0-9a-f]+$/.exec(
     Redacted.value(props.deployKey),
@@ -61,14 +58,14 @@ const localTarget = (
   });
 };
 
-const targets = { cloud: cloudTarget, local: localTarget } satisfies Record<
-  DeploymentMode,
+const targets = { live: cloudTarget, local: localTarget } satisfies Record<
+  ProviderMode,
   (props: CodeProps) => Result.Result<PushTarget, InvalidDeploymentTarget>
 >;
 
 export const deploy = Effect.fn("Code.deploy")(function* (
   props: CodeProps,
-  mode: DeploymentMode = "cloud",
+  mode: ProviderMode = "live",
 ) {
   const target = yield* Effect.fromResult(targets[mode](props));
   const runner = yield* CommandRunner;

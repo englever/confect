@@ -8,6 +8,7 @@ import { isResolved } from "alchemy/Diff";
 import * as LocalProvider from "alchemy/Local/LocalProvider";
 import * as Provider from "alchemy/Provider";
 import { Resource } from "alchemy/Resource";
+import { moduleExtension } from "alchemy/Util/Node";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
@@ -212,10 +213,6 @@ interface LocalConfig {
   readonly props: DeploymentProps;
 }
 
-const extension = new URL(import.meta.url).pathname.endsWith(".ts")
-  ? ".ts"
-  : ".js";
-
 /**
  * Under `alchemy dev` a deployment is a local Convex backend this provider
  * owns. Alchemy's dev sidecar hosts it, so the backend keeps running across
@@ -225,7 +222,10 @@ const extension = new URL(import.meta.url).pathname.endsWith(".ts")
  */
 export const localLayer = LocalProvider.make(
   Deployment,
-  new URL(`./internal/LocalSidecar${extension}`, import.meta.url).href,
+  new URL(
+    `./internal/LocalSidecar${moduleExtension(import.meta.url)}`,
+    import.meta.url,
+  ).href,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* dataDirectories;

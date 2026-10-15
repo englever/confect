@@ -16,10 +16,6 @@ export class Providers extends Provider.ProviderCollection<Providers>()(
   "@confect/alchemy/Providers",
 ) {}
 
-const localClient = ConvexClient.layer({ deployments: "local" }).pipe(
-  Layer.provide(FetchHttpClient.layer),
-);
-
 /**
  * Register Convex resources without eagerly resolving management credentials.
  * `alchemy deploy` resolves each resource to its cloud provider; `alchemy dev`
@@ -55,8 +51,7 @@ export const providers = (options?: {
         }),
         ProviderLayer.dual(EnvironmentVariables.EnvironmentVariables, {
           live: () => EnvironmentVariables.layer,
-          local: () =>
-            EnvironmentVariables.layer.pipe(Layer.provide(localClient)),
+          local: () => EnvironmentVariables.localLayer,
         }),
         ProviderLayer.dual(Code.Code, {
           live: () => Code.layer,

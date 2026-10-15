@@ -1,26 +1,28 @@
-import { dotAlchemyDirectory } from "alchemy/AlchemyContext";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as FileLock from "./FileLock";
+import { userCache } from "./UserCache";
 
 export class PushLockError extends Schema.TaggedError<PushLockError>()(
   "PushLockError",
   {
     deploymentName: Schema.String,
-    reason: Schema.Literals(["timeout", "filesystem"]),
+    reason: Schema.Literals(["configuration", "timeout", "filesystem"]),
   },
 ) {}
 
 /**
  * Serialises pushes per deployment. Overlapping `convex deploy` runs against
  * one deployment race on `wait_for_schema`, so every push holds the lock for
- * its whole duration, whether it comes from this process or another stack.
+ * its whole duration, whichever stack, checkout, or process it comes from.
  */
 export class PushLock extends Context.Service<
   PushLock,
@@ -32,23 +34,11 @@ export class PushLock extends Context.Service<
   }
 >()("@confect/alchemy/internal/PushLock") {}
 
-const Holder = Schema.fromJsonString(
-  Schema.Struct({ pid: Schema.Finite, token: Schema.String }),
-);
-
-const isAlive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-};
-
 /**
- * One lock file per deployment under `<dotAlchemy>/convex/locks/`, created
- * exclusively and naming its holder's pid. A lock whose holder has exited is
- * stale and is broken, so a crashed push never wedges the deployment.
+ * One lock file per deployment under the user's cache,
+ * `confect/alchemy/locks/<deployment>.lock`, so every checkout on the machine
+ * shares it. A lock left by a process that exited is taken over; a holder that
+ * never releases ends in a typed timeout.
  */
 export const layer = (options?: { readonly timeout?: Duration.Input }) =>
   Layer.effect(
@@ -58,79 +48,41 @@ export const layer = (options?: { readonly timeout?: Duration.Input }) =>
       const path = yield* Path.Path;
       const crypto = yield* Crypto.Crypto;
       const timeout = options?.timeout ?? Duration.minutes(10);
-      const encode = Schema.encodeEffect(Holder);
-      const decode = Schema.decodeUnknownOption(Holder);
+      const lock = Effect.fn("PushLock.lock")(
+        function* (deploymentName: string, scope: Scope.Scope) {
+          const failed = (reason: PushLockError["reason"]) =>
+            new PushLockError({ deploymentName, reason });
+          const cache = yield* userCache.pipe(
+            Effect.mapError(() => failed("configuration")),
+          );
+          if (Option.isNone(cache)) return yield* failed("configuration");
+          yield* FileLock.acquire(
+            path.join(
+              cache.value,
+              "confect",
+              "alchemy",
+              "locks",
+              `${deploymentName}.lock`,
+            ),
+            timeout,
+          ).pipe(
+            Scope.provide(scope),
+            Effect.mapError((error) =>
+              failed(error.reason === "timeout" ? "timeout" : "filesystem"),
+            ),
+          );
+        },
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
       return PushLock.of({
         withLock: (deploymentName, effect) =>
-          Effect.gen(function* () {
-            const failed = () =>
-              new PushLockError({ deploymentName, reason: "filesystem" });
-            const directory = path.resolve(
-              yield* dotAlchemyDirectory,
-              "convex",
-              "locks",
-            );
-            const file = path.join(directory, `${deploymentName}.lock`);
-            const token = Buffer.from(
-              yield* crypto.randomBytes(16).pipe(Effect.mapError(failed)),
-            ).toString("hex");
-            const holder = yield* encode({ pid: process.pid, token }).pipe(
-              Effect.mapError(failed),
-            );
-            const claim = path.join(directory, `${deploymentName}.${token}`);
-            yield* fs
-              .makeDirectory(directory, { recursive: true })
-              .pipe(Effect.mapError(failed));
-            // The holder is written in full before the hard link publishes it,
-            // so a lock file is never seen half-written.
-            const tryAcquire = fs.link(claim, file).pipe(
-              Effect.as(true),
-              Effect.catchReason("PlatformError", "AlreadyExists", () =>
-                fs.readFileString(file).pipe(
-                  Effect.map(decode),
-                  Effect.catch(() => Effect.succeedNone),
-                  Effect.flatMap((current) =>
-                    current._tag === "Some" && !isAlive(current.value.pid)
-                      ? fs.remove(file, { force: true })
-                      : Effect.void,
-                  ),
-                  Effect.as(false),
-                ),
-              ),
-              Effect.mapError(failed),
-            );
-            const acquire = tryAcquire.pipe(
-              Effect.repeat({
-                until: (acquired) => acquired,
-                schedule: Schedule.spaced("100 millis"),
-              }),
-              Effect.timeoutOrElse({
-                duration: timeout,
-                orElse: () =>
-                  Effect.fail(
-                    new PushLockError({ deploymentName, reason: "timeout" }),
-                  ),
-              }),
-            );
-            const release = fs.readFileString(file).pipe(
-              Effect.flatMap((current) =>
-                current === holder ? fs.remove(file) : Effect.void,
-              ),
-              Effect.ignore,
-            );
-            yield* fs
-              .writeFileString(claim, holder, { mode: 0o600 })
-              .pipe(Effect.mapError(failed));
-            return yield* Effect.acquireUseRelease(
-              acquire.pipe(
-                Effect.ensuring(
-                  fs.remove(claim, { force: true }).pipe(Effect.ignore),
-                ),
-              ),
-              () => effect,
-              () => release,
-            );
-          }),
+          Effect.acquireUseRelease(
+            Scope.make(),
+            (scope) => lock(deploymentName, scope).pipe(Effect.andThen(effect)),
+            (scope, exit) => Scope.close(scope, exit),
+          ),
       });
     }),
   );
