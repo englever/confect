@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { fromBundlerError } from "../BuildError";
 import * as Bundler from "../Bundler";
 import {
@@ -87,6 +88,10 @@ const assertOwned = Effect.fnUntraced(function* (
   });
 });
 
+const decodeVersion = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
+);
+
 const packageVersion = Effect.fnUntraced(function* (
   name: string,
   from: string,
@@ -99,13 +104,12 @@ const packageVersion = Effect.fnUntraced(function* (
       onNone: () => Effect.succeed("unresolved"),
       onSome: (packageJson) =>
         fs.readFileString(packageJson).pipe(
-          Effect.map((contents) => {
-            const parsed: unknown = JSON.parse(contents);
-            return Predicate.hasProperty(parsed, "version") &&
-              Predicate.isString(parsed.version)
-              ? parsed.version
-              : "unknown";
-          }),
+          Effect.map((contents) =>
+            Option.match(decodeVersion(contents), {
+              onNone: () => "unknown",
+              onSome: ({ version }) => version,
+            }),
+          ),
         ),
     },
   );
@@ -186,13 +190,24 @@ const manifestPath = Effect.gen(function* () {
   return path.join(yield* ConfectDirectory.get, "_generated", "manifest.ts");
 });
 
-const removeManifest = Effect.gen(function* () {
+/**
+ * Remove a file codegen wrote whose source is gone; leave anything else.
+ */
+const removeGenerated = Effect.fnUntraced(function* (
+  filePath: string,
+  legacy: ReadonlyArray<string>,
+) {
   const fs = yield* FileSystem.FileSystem;
-  const manifest = yield* manifestPath;
-  if (yield* fs.exists(manifest)) {
-    yield* removePathIfExists(manifest);
-    yield* logFileRemoved(manifest);
+  if (!(yield* fs.exists(filePath))) return;
+  if (!Declaration.isGenerated(yield* fs.readFileString(filePath), legacy)) {
+    return;
   }
+  yield* removePathIfExists(filePath);
+  yield* logFileRemoved(filePath);
+});
+
+const removeManifest = Effect.gen(function* () {
+  yield* removeGenerated(yield* manifestPath, []);
 });
 
 const writeDeclaration = Effect.gen(function* () {
@@ -214,7 +229,13 @@ const writeDeclaration = Effect.gen(function* () {
     auth: Option.map(auth, ({ module }) => module.default),
     componentImport: yield* componentImport(),
   }).pipe(
-    Result.mapError(invalid(Option.isSome(auth) ? "auth.ts" : "app.ts")),
+    Result.mapError(
+      (error) =>
+        new InvalidDeclarationError({
+          declarationPath: Declaration.fileOf(error),
+          reason: error.message,
+        }),
+    ),
     Effect.fromResult,
   );
 
@@ -270,7 +291,10 @@ const writeDeclaration = Effect.gen(function* () {
  * outlives a declaration that no longer produces it.
  */
 export const syncDeclaration = Effect.gen(function* () {
-  if (!(yield* isDeclared)) return Option.none<App.Any>();
+  if (!(yield* isDeclared)) {
+    yield* removeManifest;
+    return Option.none<App.Any>();
+  }
   return yield* writeDeclaration.pipe(Effect.tapError(() => removeManifest));
 });
 
@@ -279,18 +303,29 @@ export const syncDeclaration = Effect.gen(function* () {
  * `confect/http.ts`. Runs after generation, because `http.ts` imports its
  * handlers, which import generated services.
  */
-export const syncDeclaredHttp = Effect.fnUntraced(function* (app: App.Any) {
+export const syncDeclaredHttp = (app: App.Any) =>
+  checkAndWriteHttp(app).pipe(Effect.tapError(() => removeManifest));
+
+const checkAndWriteHttp = Effect.fnUntraced(function* (app: App.Any) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const convexDirectory = yield* ConvexDirectory.get;
   const confectDirectory = yield* ConfectDirectory.get;
   const httpPath = yield* confectPath("http.ts");
 
+  const convexHttpPath = path.join(convexDirectory, "http.ts");
   if (!(yield* fs.exists(httpPath))) {
     yield* Http.routes(app).pipe(
       Result.mapError(invalid("app.ts")),
       Effect.fromResult,
     );
+    yield* removeGenerated(convexHttpPath, [
+      yield* templates.http({
+        httpImportPath: yield* toModuleImportPath(
+          path.relative(convexDirectory, httpPath),
+        ),
+      }),
+    ]);
     return Option.none();
   }
 
@@ -306,7 +341,6 @@ export const syncDeclaredHttp = Effect.fnUntraced(function* (app: App.Any) {
     Effect.fromResult,
   );
 
-  const convexHttpPath = path.join(convexDirectory, "http.ts");
   const contents = yield* templates.declaredHttp({
     schemaImportPath: yield* toModuleImportPath(
       path.relative(

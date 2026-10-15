@@ -74,6 +74,15 @@ export class ForeignEnvBinding extends Data.TaggedError("ForeignEnvBinding")<{
   }
 }
 
+export class InvalidBinding extends Data.TaggedError("InvalidBinding")<{
+  readonly mount: string;
+  readonly slot: string;
+}> {
+  override get message(): string {
+    return `The mount "${this.mount}" binds ${this.slot} to something other than a string or an entry of this backend's env.`;
+  }
+}
+
 export class UnknownComponentImport extends Data.TaggedError(
   "UnknownComponentImport",
 )<{ readonly mount: string }> {
@@ -95,11 +104,22 @@ export type DeclarationError =
   | InvalidEnvKey
   | InvalidMountName
   | ForeignEnvBinding
+  | InvalidBinding
   | UnknownComponentImport
   | AuthForAnotherBackend;
 
 const ENV_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
 const MOUNT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The declaration file a parse error is about.
+ */
+export const fileOf = (error: DeclarationError): string =>
+  error._tag === "NotADeclaration"
+    ? error.file
+    : error._tag === "AuthForAnotherBackend"
+      ? "confect/auth.ts"
+      : "confect/app.ts";
 
 /**
  * A mounted component's import as the generated `convex.config.ts` writes it.
@@ -156,6 +176,11 @@ export const parse = (input: {
         if (typeof bound === "string") {
           bindings.push([slot, { kind: "value", value: bound }]);
           continue;
+        }
+        if (!Env.isEntry(bound)) {
+          return yield* Result.fail(
+            new InvalidBinding({ mount: mount.name, slot }),
+          );
         }
         const origin = Env.origin(bound);
         if (origin.backend !== name) {
@@ -264,9 +289,19 @@ const validator = (descriptor: Env.Descriptor): string => {
   return descriptor.optional ? `v.optional(${base})` : base;
 };
 
+const RESERVED = new Set(
+  "await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield".split(
+    " ",
+  ),
+);
+
+/**
+ * A safe import name for a component, from its Convex name.
+ */
 const identifier = (name: string): string => {
   const cleaned = name.replaceAll(/[^A-Za-z0-9_$]/g, "_");
-  return /^[A-Za-z_$]/.test(cleaned) ? cleaned : `_${cleaned}`;
+  const valid = /^[A-Za-z_$]/.test(cleaned) ? cleaned : `_${cleaned}`;
+  return RESERVED.has(valid) ? `${valid}Component` : valid;
 };
 
 /**

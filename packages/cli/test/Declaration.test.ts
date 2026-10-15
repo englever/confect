@@ -56,6 +56,29 @@ export default component;
     );
   });
 
+  it("never uses a reserved word as an import name", () => {
+    const worker = defineComponent("default");
+    const parsed = Declaration.parse({
+      target: "app",
+      app: App.make({
+        env: Env.make("host", {}),
+        mounts: { worker: App.mount(worker) },
+      }),
+      auth: Option.none(),
+      componentImport: () =>
+        Option.some({
+          importPath: "./worker/convex.config",
+          componentName: "default",
+        }),
+    });
+    assert(Result.isSuccess(parsed));
+    const config = Declaration.convexConfig(parsed.success);
+    expect(config).toContain(
+      'import defaultComponent from "./worker/convex.config";',
+    );
+    expect(config).toContain("app.use(defaultComponent, {");
+  });
+
   it("rejects an entry from another backend's env when types were bypassed", () => {
     const env = Env.make("tenant", {});
     const other = Env.make("platform", { LIMIT: Env.string() });
@@ -81,6 +104,30 @@ export default component;
           key: "LIMIT",
           expectedBackend: "tenant",
         }),
+      ),
+    );
+  });
+
+  it("rejects a binding that is neither a constant nor an env entry", () => {
+    const app: unknown = {
+      ...App.make({ env: Env.make("tenant", {}) }),
+      mounts: {
+        limiter: {
+          ...App.mount(ratelimiter, { env: { LIMIT: "1" } }),
+          env: { LIMIT: 1 },
+        },
+      },
+    };
+    expect(
+      Declaration.parse({
+        target: "app",
+        app,
+        auth: Option.none(),
+        componentImport,
+      }),
+    ).toEqual(
+      Result.fail(
+        new Declaration.InvalidBinding({ mount: "limiter", slot: "LIMIT" }),
       ),
     );
   });
