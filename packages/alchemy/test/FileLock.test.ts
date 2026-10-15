@@ -7,7 +7,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { rm } from "node:fs/promises";
 import * as FileLock from "../src/internal/FileLock";
 import { deadPid } from "./fixtures/Processes";
 
@@ -51,6 +50,9 @@ describe("FileLock", () => {
         const recovery = `${file}.recovery`;
         const entered = yield* Deferred.make<void>();
         const gate = Promise.withResolvers<void>();
+        const runDetached = Effect.runPromiseWith(
+          yield* Effect.context<never>(),
+        );
         // Node cannot cancel an unlink it has started: interrupting the
         // effect abandons the callback while the removal still happens.
         const slowRemoval = Layer.effect(
@@ -66,7 +68,7 @@ describe("FileLock", () => {
                     Effect.andThen(
                       Effect.callback<void>((resume) => {
                         void gate.promise
-                          .then(() => rm(target, { force: true }))
+                          .then(() => runDetached(base.remove(target)))
                           .then(() => resume(Effect.void));
                       }),
                     ),

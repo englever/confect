@@ -501,10 +501,15 @@ describe("Code push lock", () => {
         });
         const push = (codeProps: CodeProps) =>
           deploy(codeProps).pipe(
-            Effect.provide(runner),
             Effect.provide(
-              ConfigProvider.layer(
-                ConfigProvider.fromUnknown({ HOME: home, LOCALAPPDATA: home }),
+              Layer.merge(
+                runner,
+                ConfigProvider.layer(
+                  ConfigProvider.fromUnknown({
+                    HOME: home,
+                    LOCALAPPDATA: home,
+                  }),
+                ),
               ),
             ),
           );
