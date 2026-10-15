@@ -3,13 +3,16 @@ import { dotAlchemyDirectory } from "alchemy/AlchemyContext";
 import { Stack } from "alchemy/Stack";
 import * as Config from "effect/Config";
 import * as Crypto from "effect/Crypto";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
@@ -75,19 +78,22 @@ export interface LocalBackend {
   readonly siteUrl: string;
   readonly adminKey: Redacted.Redacted<string>;
   /**
-   * Completes when the backend process exits.
+   * Completes when the backend process has exited and released its data
+   * directory, so the deployment can be booted again.
    */
   readonly exited: Effect.Effect<void>;
 }
 
+// Ports are saved once a backend has answered on them, so a first start that
+// fails picks fresh ports next time instead of keeping ones that never worked.
 const Identity = Schema.fromJsonString(
   Schema.Struct({
     name: Schema.String,
     version: Schema.String,
     instanceSecret: Schema.String,
     adminKey: Schema.String,
-    port: Schema.Int,
-    sitePort: Schema.Int,
+    port: Schema.optionalKey(Schema.Int),
+    sitePort: Schema.optionalKey(Schema.Int),
   }),
 );
 type Identity = typeof Identity.Type;
@@ -244,7 +250,9 @@ const install = Effect.fn("LocalBackend.install")(function* (
 
 /**
  * Boot the local backend for one deployment and keep it running for the ambient
- * scope, which also holds the data directory's `owner.lock`. The first boot
+ * scope. The process and the data directory's `owner.lock` share a child scope
+ * that closes when the boot fails or is interrupted and when the process exits,
+ * so a deployment can be booted again in the same session. The first boot
  * installs the pinned release, generates an instance secret and admin key, and
  * picks two free loopback ports; later boots reuse all of them, so stored
  * credentials and URLs stay valid. A saved port that something else now holds
@@ -293,10 +301,11 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
   const allocate = Effect.gen(function* () {
     if (Option.isNone(range) || Option.isNone(range.value)) {
       const servers = [yield* listen(0), yield* listen(0)];
+      // A closed server no longer has an address.
+      const [port, sitePort] = servers.map(portOf);
       yield* Effect.forEach(servers, (server) =>
         server ? close(server) : Effect.void,
       );
-      const [port, sitePort] = servers.map(portOf);
       if (port === undefined || sitePort === undefined)
         return yield* fail("ports");
       return { port, sitePort };
@@ -338,124 +347,138 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
       Effect.catchTag("PlatformError", () => Effect.fail(fail("identity"))),
     );
 
-  yield* FileLock.acquire(path.join(directory, "owner.lock")).pipe(
-    Effect.mapError((error) =>
-      fail(error.reason === "held" ? "running" : "filesystem"),
-    ),
-  );
-
-  return yield* startup.withPermits(1)(
+  const save = (identity: Identity) =>
     Effect.gen(function* () {
-      const saved = yield* readIdentity(deploymentName, directory);
-      const version = Option.isSome(saved)
-        ? saved.value.version
-        : backendVersion;
-      const binary = yield* install(deploymentName, version, cache.value);
-      let ports: { readonly port: number; readonly sitePort: number };
-      if (Option.isSome(saved)) {
-        const { port, sitePort } = saved.value;
-        if (!(yield* isFree(port)) || !(yield* isFree(sitePort)))
-          return yield* fail(
-            (yield* answer(Loopback.origin(port))) === deploymentName
-              ? "running"
-              : "ports",
-          );
-        ports = saved.value;
-      } else {
-        ports = yield* allocate;
-      }
-      const credentials = Option.isSome(saved)
-        ? saved.value
-        : yield* generate(binary);
-      const identity: Identity = {
+      const file = path.join(directory, "identity.json");
+      const temp = `${file}.${process.pid}.tmp`;
+      yield* fs.writeFileString(
+        temp,
+        yield* Schema.encodeEffect(Identity)(identity),
+        { mode: 0o600 },
+      );
+      yield* fs.rename(temp, file);
+    }).pipe(Effect.mapError(() => fail("identity")));
+
+  const session = yield* Scope.Scope;
+  const owned = yield* Scope.fork(session);
+  const stopped = yield* Deferred.make<void>();
+  const start = Effect.gen(function* () {
+    yield* FileLock.acquire(path.join(directory, "owner.lock")).pipe(
+      Effect.mapError((error) =>
+        fail(error.reason === "held" ? "running" : "filesystem"),
+      ),
+    );
+    const saved = yield* readIdentity(deploymentName, directory);
+    const version = Option.isSome(saved) ? saved.value.version : backendVersion;
+    const binary = yield* install(deploymentName, version, cache.value);
+    let identity: Identity;
+    if (Option.isSome(saved)) {
+      identity = saved.value;
+    } else {
+      identity = {
         name: deploymentName,
         version,
-        instanceSecret: credentials.instanceSecret,
-        adminKey: credentials.adminKey,
-        port: ports.port,
-        sitePort: ports.sitePort,
+        ...(yield* generate(binary)),
       };
-      yield* Effect.gen(function* () {
-        const file = path.join(directory, "identity.json");
-        const temp = `${file}.${process.pid}.tmp`;
-        yield* fs.writeFileString(
-          temp,
-          yield* Schema.encodeEffect(Identity)(identity),
-          { mode: 0o600 },
+      yield* save(identity);
+    }
+    const { port: savedPort, sitePort: savedSitePort } = identity;
+    let ports: { readonly port: number; readonly sitePort: number };
+    if (savedPort !== undefined && savedSitePort !== undefined) {
+      if (!(yield* isFree(savedPort)) || !(yield* isFree(savedSitePort)))
+        return yield* fail(
+          (yield* answer(Loopback.origin(savedPort))) === deploymentName
+            ? "running"
+            : "ports",
         );
-        yield* fs.rename(temp, file);
-      }).pipe(Effect.mapError(() => fail("identity")));
+      ports = { port: savedPort, sitePort: savedSitePort };
+    } else {
+      ports = yield* allocate;
+    }
 
-      const url = Loopback.origin(identity.port);
-      const siteUrl = Loopback.origin(identity.sitePort);
-      const handle = yield* spawner
-        .spawn(
-          ChildProcess.make(
-            binary,
-            [
-              "--interface",
-              "127.0.0.1",
-              "--port",
-              String(identity.port),
-              "--site-proxy-port",
-              String(identity.sitePort),
-              "--instance-name",
-              deploymentName,
-              "--instance-secret",
-              identity.instanceSecret,
-              "--convex-origin",
-              url,
-              "--convex-site",
-              siteUrl,
-              "--local-storage",
-              path.join(directory, "convex_local_storage"),
-              "--disable-beacon",
-              path.join(directory, "convex_local_backend.sqlite3"),
-            ],
-            {
-              cwd: directory,
-              env,
-              extendEnv: false,
-              stdin: "ignore",
-              stdout: "ignore",
-              stderr: "ignore",
-            },
-          ),
-        )
-        .pipe(Effect.mapError(() => fail("spawn")));
+    const url = Loopback.origin(ports.port);
+    const siteUrl = Loopback.origin(ports.sitePort);
+    const handle = yield* spawner
+      .spawn(
+        ChildProcess.make(
+          binary,
+          [
+            "--interface",
+            "127.0.0.1",
+            "--port",
+            String(ports.port),
+            "--site-proxy-port",
+            String(ports.sitePort),
+            "--instance-name",
+            deploymentName,
+            "--instance-secret",
+            identity.instanceSecret,
+            "--convex-origin",
+            url,
+            "--convex-site",
+            siteUrl,
+            "--local-storage",
+            path.join(directory, "convex_local_storage"),
+            "--disable-beacon",
+            path.join(directory, "convex_local_backend.sqlite3"),
+          ],
+          {
+            cwd: directory,
+            env,
+            extendEnv: false,
+            stdin: "ignore",
+            stdout: "ignore",
+            stderr: "ignore",
+            forceKillAfter: "3 seconds",
+          },
+        ),
+      )
+      .pipe(Effect.mapError(() => fail("spawn")));
 
-      const ready = answer(url).pipe(
-        Effect.flatMap((name) =>
-          name === undefined || name === deploymentName
-            ? Effect.succeed(name === deploymentName)
-            : Effect.fail(fail("ports")),
-        ),
-        Effect.repeat({
-          until: (isReady) => isReady,
-          schedule: Schedule.spaced("100 millis"),
-        }),
-      );
-      const exit = handle.exitCode.pipe(
-        Effect.mapError(() => fail("exit")),
-        Effect.flatMap((code) => Effect.fail(fail("exit", Number(code)))),
-      );
-      // A backend that fails to become ready is stopped here: the instance
-      // scope that owns it stays open after a failed start.
-      yield* Effect.raceFirst(ready, exit).pipe(
-        Effect.timeoutOrElse({
-          duration: "60 seconds",
-          orElse: () => Effect.fail(fail("timeout")),
-        }),
-        Effect.tapError(() =>
-          handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.ignore),
-        ),
-      );
-      return {
-        url,
-        siteUrl,
-        adminKey: Redacted.make(identity.adminKey),
-        exited: handle.exitCode.pipe(Effect.ignore),
-      } satisfies LocalBackend;
-    }),
-  );
+    const ready = answer(url).pipe(
+      Effect.flatMap((name) =>
+        name === undefined || name === deploymentName
+          ? Effect.succeed(name === deploymentName)
+          : Effect.fail(fail("ports")),
+      ),
+      Effect.repeat({
+        until: (isReady) => isReady,
+        schedule: Schedule.spaced("100 millis"),
+      }),
+    );
+    const exit = handle.exitCode.pipe(
+      Effect.mapError(() => fail("exit")),
+      Effect.flatMap((code) => Effect.fail(fail("exit", Number(code)))),
+    );
+    yield* Effect.raceFirst(ready, exit).pipe(
+      Effect.timeoutOrElse({
+        duration: "60 seconds",
+        orElse: () => Effect.fail(fail("timeout")),
+      }),
+    );
+    if (identity.port === undefined) yield* save({ ...identity, ...ports });
+    // An exited backend releases the data directory before `exited`
+    // completes, so the deployment can be booted again in this session.
+    yield* handle.exitCode.pipe(
+      Effect.ignore,
+      Effect.andThen(Scope.close(owned, Exit.void)),
+      Effect.andThen(Deferred.succeed(stopped, undefined)),
+      Effect.forkIn(session),
+    );
+    return {
+      url,
+      siteUrl,
+      adminKey: Redacted.make(identity.adminKey),
+      exited: Deferred.await(stopped),
+    } satisfies LocalBackend;
+  });
+
+  return yield* startup
+    .withPermits(1)(start)
+    .pipe(
+      Scope.provide(owned),
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) ? Effect.void : Scope.close(owned, exit),
+      ),
+    );
 });
