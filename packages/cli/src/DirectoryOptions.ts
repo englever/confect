@@ -50,7 +50,14 @@ export const layer = ({
           const fs = yield* FileSystem.FileSystem;
           const projectRoot = yield* ProjectRoot.ProjectRoot.get;
           const absolute = path.resolve(directory);
-          if (!(yield* fs.exists(path.join(absolute, "convex.config.ts")))) {
+          // A declared component's `convex.config.ts` is codegen output, so
+          // its sibling `confect/app.ts` also marks the directory.
+          if (
+            !(yield* fs.exists(path.join(absolute, "convex.config.ts"))) &&
+            !(yield* fs.exists(
+              path.join(path.dirname(absolute), "confect", "app.ts"),
+            ))
+          ) {
             return yield* new ConvexDirectory.ConvexDirectoryNotFoundError();
           }
           const pkg = yield* fs
