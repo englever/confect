@@ -112,8 +112,14 @@ describe("Http", () => {
   it("rejects a duplicate method and path after merging mount apis", () => {
     const shared = HttpApi.make("shared").add(
       HttpApiGroup.make("a").add(
-        HttpApiEndpoint.get("one", "/items/:id", { success: Schema.String }),
-        HttpApiEndpoint.get("two", "/items/:key", { success: Schema.String }),
+        HttpApiEndpoint.get("one", "/items/:id", {
+          params: Schema.Struct({ id: Schema.String }),
+          success: Schema.String,
+        }),
+        HttpApiEndpoint.get("two", "/items/:key", {
+          params: Schema.Struct({ key: Schema.String }),
+          success: Schema.String,
+        }),
       ),
     );
     const duplicated = App.make({
@@ -130,6 +136,34 @@ describe("Http", () => {
         }),
       ),
     );
+  });
+
+  it("keeps literal text after a path parameter distinct", () => {
+    const actions = HttpApi.make("actions").add(
+      HttpApiGroup.make("a").add(
+        HttpApiEndpoint.post("cancel", "/items/:id:cancel", {
+          params: Schema.Struct({ id: Schema.String }),
+          success: Schema.String,
+        }),
+        HttpApiEndpoint.post("archive", "/items/:id:archive", {
+          params: Schema.Struct({ id: Schema.String }),
+          success: Schema.String,
+        }),
+        HttpApiEndpoint.get("json", "/files/:name.json", {
+          params: Schema.Struct({ name: Schema.String }),
+          success: Schema.String,
+        }),
+        HttpApiEndpoint.get("text", "/files/:name.txt", {
+          params: Schema.Struct({ name: Schema.String }),
+          success: Schema.String,
+        }),
+      ),
+    );
+    const distinct = App.make({
+      env: Env.make("host", {}),
+      mounts: { items: App.mount(counter, { httpPrefix: "/x", api: actions }) },
+    });
+    expect(Result.isSuccess(Http.routes(distinct))).toBe(true);
   });
 
   it("rejects mounts whose prefixes overlap, with or without an api", () => {

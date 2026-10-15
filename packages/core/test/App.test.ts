@@ -108,6 +108,15 @@ describe("App", () => {
       EMAIL_TRANSPORT: Env.literals(["resend", "log"]),
     });
     App.make({ env, mounts: { email: App.mount(email, { env: emailEnv }) } });
+    const either = (): string | typeof platform.EMAIL_FROM =>
+      platform.EMAIL_FROM;
+    App.make({
+      env,
+      mounts: {
+        // @ts-expect-error A binding that may be another backend's entry is rejected too.
+        email: App.mount(email, { env: { ...emailEnv, FROM: either() } }),
+      },
+    });
     App.make({
       env,
       mounts: {

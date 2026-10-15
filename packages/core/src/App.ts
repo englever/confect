@@ -114,17 +114,16 @@ export function mount(
     httpPrefix: options?.httpPrefix,
     api: options?.api,
     env: options?.env ?? {},
+    // The overloads above carry the precise types; this body serves both.
   } as AnyMount;
 }
+
+type OwnerOf<V> = V extends Env.Entry<infer N, any, any, any> ? N : never;
 
 type Owners<M> =
   M extends Mount<Definition, infer O>
     ? O extends { readonly env: infer B }
-      ? {
-          [K in keyof B]: B[K] extends Env.Entry<infer N, any, any, any>
-            ? N
-            : never;
-        }[keyof B]
+      ? { [K in keyof B]: OwnerOf<B[K]> }[keyof B]
       : never
     : never;
 

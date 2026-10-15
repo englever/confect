@@ -48,3 +48,5 @@ export default Http.make({ api: TenantApi, handlers: TenantHandlers });
 Each `Env` entry is an Effect `Config`, so a handler reads `yield* env.RESEND_API_KEY` as `Redacted<string>`. `App.mount` types each mount's env against the component's own `defineComponent({ env })`, and `Manifest.Values<typeof manifest>` types the values a deployment supplies. `Auth.siteUrl` stands in for the deployment's site URL in a provider.
 
 Codegen reports a `convex.config.ts` or `auth.config.ts` it did not write ("Found a hand-written … `confect codegen` writes it from … now"), an app route under a mount's HTTP prefix, a duplicate route, and overlapping mount prefixes. `confect codegen --component-dir` also accepts a Confect-authored component that declares itself with `env.ts` and `app.ts`, and writes its `defineComponent`.
+
+`@confect/core` now requires `convex` 1.39.0 or later, the first release whose component definitions declare their environment.

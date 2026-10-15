@@ -38,6 +38,10 @@ describe("Auth", () => {
       { domain: "https://login.example.edu", applicationID: "edcell" },
     ]);
     expect(Auth.siteUrlPath(Auth.siteUrl(app.mounts.auth))).toBe("/auth");
+    const slashed = App.mount(authCore, { httpPrefix: "/auth/" });
+    expect(Auth.siteUrlPath(Auth.siteUrl(slashed, "/jwks.json"))).toBe(
+      "/auth/jwks.json",
+    );
     expect(Auth.siteUrlPath("https://login.example.edu")).toBeUndefined();
   });
 
@@ -62,7 +66,9 @@ describe("Auth", () => {
         },
       ],
     });
-    // @ts-expect-error A mount without an HTTP prefix has no URL to point at.
-    Auth.siteUrl(app.mounts.importsPool);
+    const unprefixed = () =>
+      // @ts-expect-error A mount without an HTTP prefix has no URL to point at.
+      Auth.siteUrl(app.mounts.importsPool);
+    void unprefixed;
   });
 });

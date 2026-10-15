@@ -53,7 +53,7 @@ export function siteUrl(
     [SiteUrlTypeId]: SiteUrlTypeId,
     path:
       typeof pathOrMount === "object"
-        ? pathOrMount.httpPrefix + path
+        ? pathOrMount.httpPrefix.replace(/\/+$/, "") + path
         : (pathOrMount ?? ""),
   };
 }

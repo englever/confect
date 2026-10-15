@@ -2,6 +2,8 @@ import * as Data from "effect/Data";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
+import type * as Schema from "effect/Schema";
+import * as SchemaAST from "effect/SchemaAST";
 import type * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import type * as HttpApiGroup from "effect/http-api/HttpApiGroup";
@@ -134,24 +136,45 @@ const isUnder = (path: string, prefix: string): boolean =>
   path === `${prefix}/` ||
   path.startsWith(`${prefix}/`);
 
+/**
+ * The parameter names an endpoint declares. As in Effect's router, a colon
+ * segment is a parameter only when its name is declared; otherwise it is
+ * literal text.
+ */
+const paramNames = (params: Schema.Top | undefined): ReadonlySet<string> => {
+  if (params === undefined) return new Set();
+  let ast = params.ast;
+  while (ast.encoding !== undefined) {
+    ast = ast.encoding[ast.encoding.length - 1].to;
+  }
+  return SchemaAST.isObjects(ast)
+    ? new Set(ast.propertySignatures.map(({ name }) => String(name)))
+    : new Set();
+};
+
+interface KeyedRoute {
+  readonly route: Route;
+  /**
+   * Method and path with declared parameter names erased.
+   */
+  readonly key: string;
+}
+
 const apiRoutes = (
   api: App.Api,
   prefix: string,
   owner: Owner,
-): ReadonlyArray<Route> =>
+): ReadonlyArray<KeyedRoute> =>
   Object.values<HttpApiGroup.Top>(api.groups).flatMap((group) =>
-    Object.values(group.endpoints).map((endpoint) => ({
-      method: endpoint.method,
-      path: prefix + endpoint.path,
-      owner,
-    })),
+    Object.values(group.endpoints).map((endpoint) => {
+      const path = prefix + endpoint.path;
+      const declared = paramNames(endpoint.params);
+      return {
+        route: { method: endpoint.method, path, owner },
+        key: `${endpoint.method} ${path.replaceAll(/:(\w+)/g, (param, name: string) => (declared.has(name) ? ":" : param))}`,
+      };
+    }),
   );
-
-/**
- * Path parameter names do not distinguish routes.
- */
-const routeKey = (route: Route): string =>
-  `${route.method} ${route.path.replaceAll(/:[^/]+/g, ":")}`;
 
 /**
  * Every HTTP route the backend serves: the app's api, its docs page and each
@@ -186,7 +209,7 @@ export const routes = (
     }
   }
 
-  const own: ReadonlyArray<Route> =
+  const own: ReadonlyArray<KeyedRoute> =
     http === undefined
       ? []
       : [
@@ -195,14 +218,17 @@ export const routes = (
             ? []
             : [
                 {
-                  method: "GET",
-                  path: http.docs,
-                  owner: { kind: "docs" } as const,
+                  route: {
+                    method: "GET",
+                    path: http.docs,
+                    owner: { kind: "docs" } as const,
+                  },
+                  key: `GET ${http.docs}`,
                 },
               ]),
         ];
 
-  for (const route of own) {
+  for (const { route } of own) {
     const mount = mounts.find(({ httpPrefix }) =>
       isUnder(route.path, httpPrefix),
     );
@@ -227,8 +253,8 @@ export const routes = (
     ),
   ];
   const seen = new Map<string, Route>();
-  for (const route of all) {
-    const previous = seen.get(routeKey(route));
+  for (const { route, key } of all) {
+    const previous = seen.get(key);
     if (previous !== undefined) {
       return Result.fail(
         new DuplicateRoute({
@@ -239,7 +265,7 @@ export const routes = (
         }),
       );
     }
-    seen.set(routeKey(route), route);
+    seen.set(key, route);
   }
-  return Result.succeed(all);
+  return Result.succeed(all.map(({ route }) => route));
 };
