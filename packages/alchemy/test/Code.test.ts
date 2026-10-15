@@ -15,12 +15,17 @@ import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
-import { deploy } from "../src/internal/CodeDeployment";
+import { AlchemyContext } from "alchemy/AlchemyContext";
+import {
+  deploy,
+  InvalidDeploymentTarget,
+} from "../src/internal/CodeDeployment";
 import {
   CommandError,
   CommandRunner,
   layer as runnerLayer,
 } from "../src/internal/CommandRunner";
+import { PushLock, layer as lockLayer } from "../src/internal/PushLock";
 
 const serialize = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const props: CodeProps = {
@@ -42,17 +47,27 @@ const lifecycle = {
     note: () => Effect.void,
   },
 };
+const unlocked = Layer.succeed(PushLock, {
+  withLock: (_deploymentName, effect) => effect,
+});
 const recorder = (calls: string[]) =>
-  Layer.succeed(CommandRunner, {
-    prepare: () =>
-      Effect.sync(() => {
-        calls.push("prepare");
-      }),
-    deploy: () =>
-      Effect.sync(() => {
-        calls.push("deploy");
-      }),
-  });
+  Layer.mergeAll(
+    Layer.succeed(CommandRunner, {
+      prepare: () =>
+        Effect.sync(() => {
+          calls.push("prepare");
+        }),
+      deploy: () =>
+        Effect.sync(() => {
+          calls.push("deploy");
+        }),
+    }),
+    unlocked,
+  );
+const localProps: CodeProps = {
+  deployment: { name: "confect-deployment-abc", url: "http://127.0.0.1:3300" },
+  deployKey: Redacted.make("confect-deployment-abc|0123456789abcdef"),
+};
 
 describe("Code", () => {
   it.effect(
@@ -100,6 +115,7 @@ describe("Code", () => {
     Effect.gen(function* () {
       let pushed = false;
       const result = yield* deploy(props).pipe(
+        Effect.provide(unlocked),
         Effect.provideService(CommandRunner, {
           prepare: () =>
             Effect.fail(
@@ -236,6 +252,7 @@ describe("Code command boundary", () => {
           yield* deploy({ ...props, cwd }).pipe(
             Effect.provide([
               runnerLayer.pipe(Layer.provide(spawner)),
+              unlocked,
               ConfigProvider.layer(ConfigProvider.fromUnknown(environment)),
             ]),
           );
@@ -343,6 +360,7 @@ describe("Code command boundary", () => {
         yield* deploy({ ...props, cwd }).pipe(
           Effect.provide([
             runnerLayer.pipe(Layer.provide(spawner)),
+            unlocked,
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
                 CONVEX_ACCESS_TOKEN: "ambient-management-secret",
@@ -378,7 +396,7 @@ describe("Code command boundary", () => {
           deployKey: props.deployKey,
           cwd,
         }).pipe(
-          Effect.provide(runnerLayer.pipe(Layer.provide(spawner))),
+          Effect.provide([runnerLayer.pipe(Layer.provide(spawner)), unlocked]),
           Effect.result,
         );
         expect(Result.isFailure(result)).toBe(true);
@@ -416,7 +434,7 @@ describe("Code command boundary", () => {
         deployKey: props.deployKey,
         cwd,
       }).pipe(
-        Effect.provide(runnerLayer.pipe(Layer.provide(spawner))),
+        Effect.provide([runnerLayer.pipe(Layer.provide(spawner)), unlocked]),
         Effect.forkScoped,
       );
       const envFile = yield* Deferred.await(started);
@@ -437,7 +455,7 @@ describe("Code command boundary", () => {
         deployKey: props.deployKey,
         cwd,
       }).pipe(
-        Effect.provide(
+        Effect.provide([
           runnerLayer.pipe(
             Layer.provide(
               Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
@@ -449,7 +467,8 @@ describe("Code command boundary", () => {
               }),
             ),
           ),
-        ),
+          unlocked,
+        ]),
         Effect.result,
       );
       expect(Result.isFailure(result)).toBe(true);
@@ -458,5 +477,164 @@ describe("Code command boundary", () => {
           new CommandError({ operation: "deploy", reason: "configuration" }),
         );
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("Code push lock", () => {
+  it.live(
+    "serialises pushes to one deployment and lets two deployments push together",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dotAlchemy = yield* fs.makeTempDirectoryScoped({
+          prefix: "confect-push-order-",
+        });
+        const events: string[] = [];
+        const runner = Layer.succeed(CommandRunner, {
+          prepare: () => Effect.void,
+          deploy: (target) =>
+            Effect.gen(function* () {
+              events.push(`start ${target.deploymentName}`);
+              yield* Effect.sleep("150 millis");
+              events.push(`end ${target.deploymentName}`);
+            }),
+        });
+        const push = (codeProps: CodeProps) =>
+          deploy(codeProps).pipe(
+            Effect.provide(runner),
+            Effect.provideService(AlchemyContext, {
+              dotAlchemy,
+              dev: false,
+              adopt: false,
+            }),
+          );
+        yield* Effect.all([push(props), push(props)], {
+          concurrency: "unbounded",
+        });
+        expect(events).toEqual([
+          "start happy-otter-123",
+          "end happy-otter-123",
+          "start happy-otter-123",
+          "end happy-otter-123",
+        ]);
+        events.length = 0;
+        yield* Effect.all(
+          [
+            push(props),
+            push({
+              deployment: {
+                name: "brave-fox-456",
+                url: "https://brave-fox-456.convex.cloud",
+              },
+              deployKey: Redacted.make("prod:brave-fox-456|test-secret"),
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        expect(events.slice(0, 2).toSorted()).toEqual([
+          "start brave-fox-456",
+          "start happy-otter-123",
+        ]);
+      }).pipe(
+        Effect.provide(
+          lockLayer().pipe(Layer.provideMerge(NodeServices.layer)),
+        ),
+      ),
+  );
+});
+
+describe("Code local target", () => {
+  it.effect(
+    "pushes a local deployment through the self-hosted target without a deploy key",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const cwd = yield* project;
+        let selection = "";
+        const spawner = Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {
+          exitCode: (command) =>
+            Effect.gen(function* () {
+              if (command._tag !== "StandardCommand")
+                return ChildProcessSpawner.ExitCode(1);
+              selection = yield* fs.readFileString(
+                command.args[command.args.indexOf("--env-file") + 1],
+              );
+              return ChildProcessSpawner.ExitCode(0);
+            }),
+        });
+        expect(
+          yield* deploy({ ...localProps, cwd }, "local").pipe(
+            Effect.provide([
+              runnerLayer.pipe(Layer.provide(spawner)),
+              unlocked,
+            ]),
+          ),
+        ).toEqual(localProps.deployment);
+        expect(selection).toBe(
+          "CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3300\nCONVEX_SELF_HOSTED_ADMIN_KEY=confect-deployment-abc|0123456789abcdef\n",
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "rejects cloud, non-loopback, and foreign targets for a local deployment",
+    () =>
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        for (const [codeProps, reason] of [
+          [
+            {
+              ...localProps,
+              deployment: {
+                ...localProps.deployment,
+                url: "https://confect-deployment-abc.convex.cloud",
+              },
+            },
+            "deployment",
+          ],
+          [
+            {
+              ...localProps,
+              deployment: {
+                ...localProps.deployment,
+                url: "http://localhost:3300",
+              },
+            },
+            "deployment",
+          ],
+          [
+            {
+              ...localProps,
+              deployment: {
+                ...localProps.deployment,
+                url: "http://127.0.0.1:3300/api",
+              },
+            },
+            "deployment",
+          ],
+          [
+            { ...localProps, deployKey: Redacted.make("other-backend|0123") },
+            "deployKey",
+          ],
+          [
+            {
+              ...localProps,
+              deployKey: Redacted.make(
+                "confect-deployment-abc|0123\nCONVEX_DEPLOY_KEY=prod:x|y",
+              ),
+            },
+            "deployKey",
+          ],
+        ] as const) {
+          const result = yield* deploy(codeProps, "local").pipe(
+            Effect.provide(recorder(calls)),
+            Effect.result,
+          );
+          expect(result).toEqual(
+            Result.fail(new InvalidDeploymentTarget({ reason })),
+          );
+        }
+        expect(calls).toEqual([]);
+      }),
   );
 });
