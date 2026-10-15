@@ -432,35 +432,52 @@ export const make = <
           convexFunctionName,
         }) as Any,
     ),
-    Match.tag("Confect", (provenance): Any => {
-      const ref = {
-        [TypeId]: TypeId as TypeId,
-        _tag: "Confect" as const,
-        convexFunctionName,
-        kind: provenance.kind,
-        middlewareAttachments: [
-          ...groupMiddlewareAttachments,
-          ...functionSpec.middlewareAttachments,
-        ],
-        get middlewareSpecs() {
-          return this.middlewareAttachments.map(({ spec }) => spec);
-        },
-      };
-
-      Lazy.defineProperty(ref, "args", () => provenance.args);
-      Lazy.defineProperty(ref, "returns", () => provenance.returns);
-      if ("error" in provenance) {
-        Lazy.defineProperty(ref, "error", () => provenance.error);
-      }
-
-      return ref as unknown as Any;
-    }),
+    Match.tag("Confect", (provenance): Any =>
+      fromProvenance(convexFunctionName, provenance, [
+        ...groupMiddlewareAttachments,
+        ...functionSpec.middlewareAttachments,
+      ]),
+    ),
     Match.exhaustive,
   ) as FromFunctionSpec<
     FunctionSpec_,
     MiddlewareSpec.Error<GroupMiddlewareSpec_>,
     MiddlewareSpec.EncodedError<GroupMiddlewareSpec_>
   >;
+};
+
+/**
+ * Build a Confect ref that runs with `provenance`'s codecs. Pass
+ * `functionReference` when the function has no local name: an installed
+ * component's function or a function handle. The ref reads `args`, `returns`
+ * and `error` from the provenance on first use, so building it forces no
+ * schema.
+ */
+export const fromProvenance = (
+  convexFunctionName: string,
+  provenance: FunctionProvenance.AnyConfect,
+  middlewareAttachments: ReadonlyArray<MiddlewareAttachment.MiddlewareAttachment>,
+  functionReference?: ConvexFunctionReference<any, any>,
+): AnyConfect => {
+  const ref = {
+    [TypeId]: TypeId as TypeId,
+    _tag: "Confect" as const,
+    convexFunctionName,
+    ...(functionReference === undefined ? {} : { functionReference }),
+    kind: provenance.kind,
+    middlewareAttachments,
+    get middlewareSpecs() {
+      return middlewareAttachments.map(({ spec }) => spec);
+    },
+  };
+
+  Lazy.defineProperty(ref, "args", () => provenance.args);
+  Lazy.defineProperty(ref, "returns", () => provenance.returns);
+  if ("error" in provenance) {
+    Lazy.defineProperty(ref, "error", () => provenance.error);
+  }
+
+  return ref as unknown as AnyConfect;
 };
 
 export const getConvexFunctionName = (ref: Any): string =>

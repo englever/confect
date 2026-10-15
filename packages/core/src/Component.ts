@@ -318,11 +318,8 @@ export const bind = <
             functionReference: nativeRef,
           })),
           Match.tag("Confect", (ref) => {
-            const bound = {
-              [Ref.TypeId]: Ref.TypeId as Ref.TypeId,
+            const provenance = {
               _tag: "Confect" as const,
-              convexFunctionName: ref.convexFunctionName,
-              functionReference: nativeRef,
               kind: Match.value(ref.kind).pipe(
                 Match.tag("Standard", (kind) => kind),
                 Match.tag("Paginated", (kind) => {
@@ -340,28 +337,28 @@ export const bind = <
                 }),
                 Match.exhaustive,
               ),
-              middlewareAttachments: Array.map(
-                ref.middlewareAttachments,
-                (attachment) => ({
-                  ...attachment,
-                  spec: rebaseMiddleware(attachment.spec),
-                }),
-              ),
-              get middlewareSpecs() {
-                return this.middlewareAttachments.map(({ spec }) => spec);
-              },
             };
-            Lazy.defineProperty(bound, "args", () =>
+            Lazy.defineProperty(provenance, "args", () =>
               Schema.Struct(Record.map(ref.args.fields, rebase)),
             );
-            Lazy.defineProperty(bound, "returns", () => rebase(ref.returns));
+            Lazy.defineProperty(provenance, "returns", () =>
+              rebase(ref.returns),
+            );
             if ("error" in ref) {
-              Lazy.defineProperty(bound, "error", () => {
+              Lazy.defineProperty(provenance, "error", () => {
                 const error = ref.error;
                 return error === undefined ? undefined : rebase(error);
               });
             }
-            return bound as unknown as Ref.AnyConfect;
+            return Ref.fromProvenance(
+              ref.convexFunctionName,
+              provenance as FunctionProvenance.AnyConfect,
+              Array.map(ref.middlewareAttachments, (attachment) => ({
+                ...attachment,
+                spec: rebaseMiddleware(attachment.spec),
+              })),
+              nativeRef,
+            );
           }),
           Match.exhaustive,
         );
