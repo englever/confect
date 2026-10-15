@@ -103,9 +103,11 @@ export type Routes<Services_ = Services> = Layer.Layer<
  * Requests that match no route receive the Effect router's 404 response.
  *
  * Supply `{ api }` with the `HttpApi` registered by the routes layer to show
- * endpoint patterns in Convex completion logs and the dashboard. Plain Effect
- * routes and unmatched requests use their concrete path as the completion
- * label. Without the option, Convex reports the catch-all registrations.
+ * endpoint patterns in Convex completion logs and the dashboard. Requests that
+ * match no reflected endpoint use their concrete path as the completion label.
+ * Without the option, Convex reports the catch-all registrations. Application
+ * endpoints must not overlap component HTTP mounts: Convex also uses dashboard
+ * route entries to select between application and component routers.
  *
  * Plain Convex routes can still be added to the returned router—Convex matches
  * exact paths first and longer path prefixes before the catch-all, so they take

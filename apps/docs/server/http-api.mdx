@@ -125,7 +125,7 @@ export default ConfectHttpRouter.make(
 
 With `{ api }`, Convex's completion logs and dashboard list endpoint patterns such as `GET /users/:id` instead of `GET /*`. Pass the same API you register with `HttpApiBuilder.layer`. If you register several APIs, combine their definitions with `HttpApi.addHttpApi` and supply the combined API for labels.
 
-Prefer `HttpApi` endpoints for application routes so Convex can show their methods and patterns. Plain `HttpRouter.add` routes and Scalar docs pages still work, but API reflection cannot list them in the dashboard. Their requests use the concrete path in completion logs, as do unmatched requests. Explicit Convex routes added with `.route(...)` keep their own dashboard entries and labels.
+Prefer `HttpApi` endpoints for application routes so Convex can show their methods and patterns. Plain `HttpRouter.add` routes and Scalar docs pages still work, but API reflection cannot list them in the dashboard. Requests outside the supplied API use the concrete path in completion logs, including unmatched requests. A plain Effect route that shadows an API pattern still receives that pattern's label. Explicit Convex routes added with `.route(...)` keep their own dashboard entries and labels.
 
 Omitting `{ api }` preserves the catch-all dashboard rows and completion labels.
 
@@ -136,6 +136,8 @@ const http = ConfectHttpRouter.forSchema(schema)(routes, { api });
 ```
 
 The component API's paths and labels stay relative to its HTTP mount. For example, a component endpoint `/users/:id` mounted under `/directory` serves `/directory/users/42` and logs `GET /users/:id`.
+
+Do not declare an application endpoint beneath a component's HTTP mount. Convex uses the dashboard route entries to select between application and component routers, and an exact application endpoint can shadow a component route.
 
 ## Routing semantics
 
