@@ -1,0 +1,35 @@
+name: Check upstream release rebase
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebase:
+    name: Rebase in a scratch branch
+    if: github.repository == 'englever/confect'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: englever/main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".node-version"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Fetch upstream history and release tags
+        run: |
+          git remote add upstream https://github.com/rjdellecese/confect.git
+          git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
+          git fetch --no-tags upstream 'refs/tags/@confect/core@*:refs/tags/@confect/core@*'
+      - name: Check the newest stable release
+        run: bun scripts/rebaseOntoRelease.ts origin/englever/main upstream/main
