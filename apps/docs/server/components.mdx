@@ -71,8 +71,8 @@ import { MutationRunner } from "./_generated/services";
 import { counter } from "./counter";
 
 const create = Effect.gen(function* () {
-  const runMutation = yield* MutationRunner;
-  return yield* runMutation(counter.counter.create, { count: 3 });
+  const mutation = yield* MutationRunner;
+  return yield* mutation.runMutation(counter.counter.create, { count: 3 });
 });
 ```
 
@@ -94,7 +94,7 @@ export default Table.make(() =>
 
 `Component.id` also supports `_storage` and `_scheduled_functions` for generated contracts. Use `Component.schema(counter, exportedCodec)` to rebind IDs inside a codec exported by the component, including nested objects and arrays.
 
-Scopes change TypeScript identity and validator selection, not ID strings. IDs owned by the current database compile to `v.id(tableName)`; IDs from another database compile to `v.string()`. A foreign ID field therefore does not validate ownership at runtime. Validate untrusted references through the owning component and perform authorization in your application.
+Scopes change TypeScript identity and validator selection, not ID strings. Deeply nested installations can lose compile-time ID separation. IDs owned by the current database compile to `v.id(tableName)`; IDs from another database compile to `v.string()`. A foreign ID field therefore does not validate ownership at runtime. Validate untrusted references through the owning component and perform authorization in your application.
 
 <Warning>
   Keep the generated registry's literal mount names. Widening a component API to
@@ -157,6 +157,8 @@ Keep using `FunctionImpl.make(databaseSchema, group, name, handler)` with the ge
 - Storage and scheduling services return IDs in that same component scope.
 - Generated raw contexts preserve scoped ID types and omit `auth`.
 - Application `Auth` is unavailable. Pass the identity information your component needs explicitly in function arguments.
+
+Convex rejects `"use node"` inside components. Keep Node actions in the host application.
 
 Component codegen rejects `confect/auth.ts`. Configuration reads still use Convex's environment provider; declare component environment variables through the native component configuration API.
 
