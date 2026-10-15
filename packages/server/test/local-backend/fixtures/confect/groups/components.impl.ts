@@ -50,6 +50,22 @@ const schedule = FunctionImpl.make(schema, spec, "schedule", ({ run }) =>
     });
   }).pipe(Effect.orDie),
 );
+const scheduleAndCancel = FunctionImpl.make(
+  schema,
+  spec,
+  "scheduleAndCancel",
+  (args) =>
+    Effect.gen(function* () {
+      const mutation = yield* MutationRunner;
+      return yield* mutation.runMutation(first.counter.scheduleAndCancel, args);
+    }).pipe(Effect.orDie),
+);
+const cancel = FunctionImpl.make(schema, spec, "cancel", (args) =>
+  Effect.gen(function* () {
+    const mutation = yield* MutationRunner;
+    return yield* mutation.runMutation(first.counter.cancel, args);
+  }).pipe(Effect.orDie),
+);
 const list = FunctionImpl.make(schema, spec, "list", (args) =>
   Effect.gen(function* () {
     const runQuery = yield* QueryRunner;
@@ -175,6 +191,8 @@ export default GroupImpl.make(schema, spec).pipe(
   Layer.provide([
     exercise,
     schedule,
+    scheduleAndCancel,
+    cancel,
     list,
     uploadUrl,
     storageUrl,

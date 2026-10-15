@@ -1,9 +1,11 @@
 import { FunctionImpl, GroupImpl, QueryStream } from "@confect/server";
+import * as DateTime from "effect/DateTime";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Predicate from "effect/Predicate";
 import schema from "./_generated/schema";
 import refs from "./_generated/refs";
@@ -16,7 +18,7 @@ import {
   StorageReader,
   StorageWriter,
 } from "./_generated/services";
-import counter, { Rejected } from "./counter.spec";
+import counter, { Rejected, ScheduledId } from "./counter.spec";
 import env from "./env";
 
 const create = FunctionImpl.make(schema, counter, "create", (args) =>
@@ -52,6 +54,42 @@ const schedule = FunctionImpl.make(schema, counter, "schedule", (args) =>
       refs.public.counter.create,
       args,
     );
+  }),
+);
+const scheduleAndCancel = FunctionImpl.make(
+  schema,
+  counter,
+  "scheduleAndCancel",
+  ({ run }) =>
+    Effect.gen(function* () {
+      const scheduler = yield* Scheduler;
+      const after = yield* scheduler.runAfter(
+        Duration.millis(100),
+        refs.public.counter.create,
+        { run, count: 999 },
+      );
+      const at = yield* scheduler.runAt(
+        DateTime.addDuration(yield* DateTime.now, Duration.millis(100)),
+        refs.public.counter.create,
+        { run, count: 998 },
+      );
+      yield* scheduler.cancel(after);
+      yield* scheduler.cancel(at);
+      const control = yield* scheduler.runAfter(
+        Duration.millis(200),
+        refs.public.counter.create,
+        { run, count: 17 },
+      );
+      return { after, at, control };
+    }),
+);
+const cancel = FunctionImpl.make(schema, counter, "cancel", ({ id }) =>
+  Effect.gen(function* () {
+    const scheduler = yield* Scheduler;
+    yield* scheduler.cancel(
+      yield* Schema.decodeUnknownEffect(ScheduledId)(id).pipe(Effect.orDie),
+    );
+    return null;
   }),
 );
 const uploadUrl = FunctionImpl.make(schema, counter, "uploadUrl", () =>
@@ -150,6 +188,8 @@ export default GroupImpl.make(schema, counter).pipe(
     list,
     reject,
     schedule,
+    scheduleAndCancel,
+    cancel,
     uploadUrl,
     storageUrl,
     hasAuth,

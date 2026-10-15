@@ -52,6 +52,25 @@ export default GroupSpec.make()
   )
   .addFunction(
     FunctionSpec.publicMutation({
+      name: "scheduleAndCancel",
+      args: () => ({ run: Schema.String }),
+      returns: () =>
+        Schema.Struct({
+          after: ScheduledId,
+          at: ScheduledId,
+          control: ScheduledId,
+        }),
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicMutation({
+      name: "cancel",
+      args: () => ({ id: Schema.String }),
+      returns: () => Schema.Null,
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicMutation({
       name: "uploadUrl",
       returns: () => Schema.String,
     }),

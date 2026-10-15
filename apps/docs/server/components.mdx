@@ -158,7 +158,7 @@ Keep using `FunctionImpl.make(databaseSchema, group, name, handler)` with the ge
 - Generated raw contexts preserve scoped ID types and omit `auth`.
 - Application `Auth` is unavailable. Pass the identity information your component needs explicitly in function arguments.
 
-The component `Scheduler` interface supports `runAfter` and `runAt`. It does not yet expose `cancel`.
+The component `Scheduler` supports `runAfter`, `runAt`, and `cancel`. Pass the ID returned by either scheduling method to `scheduler.cancel(id)`. The ID belongs to the component's `_scheduled_functions` table. IDs from the application or another component scope fail to compile.
 
 Convex rejects `"use node"` inside components. Keep Node actions in the host application.
 
@@ -166,7 +166,27 @@ Component codegen rejects `confect/auth.ts`. Configuration reads still use Conve
 
 For Effect HTTP routes, use `HttpRouter.forSchema(databaseSchema)(routes)` so route capabilities follow the component schema too. Mount the component's routes using Convex's component HTTP routing API. The schema-free `HttpRouter.make(routes)` remains the application API.
 
-Convex's built-in database pagination is not supported inside components. Use [stream queries](/server/database/streams) for component pagination instead of the native `.paginate()` path. Plain Convex functions retain their native contexts and runtime restrictions; Confect does not rewrite their handlers.
+Convex's built-in database pagination is not supported inside components. Calling native `.paginate()` on a component reader fails to compile with "Native pagination is unavailable in components. Use QueryStream.paginate for index queries." This applies to index queries, search results, and component system tables. Application-target readers keep native pagination. Generic helpers that call native pagination must constrain their schema to an application target. A schema that could describe a component is rejected.
+
+For component index queries, use [`QueryStream.paginate`](/server/database/streams#paginating-a-stream) with a stream query:
+
+```ts
+import { QueryStream } from "@confect/server";
+import * as Effect from "effect/Effect";
+import { DatabaseReader } from "./_generated/services";
+
+Effect.gen(function* () {
+  const reader = yield* DatabaseReader;
+  return yield* QueryStream.paginate(
+    reader.table("counters").stream("by_creation_time"),
+    { cursor: null, numItems: 20 },
+  );
+});
+```
+
+Stream queries do not provide a replacement for native search pagination. Plain Convex functions and explicit raw-context calls retain their native contexts and runtime restrictions; Confect does not rewrite their handlers.
+
+Explicit `OrderedQuery` and `QueryInitializer` type annotations default to the application target. Pass `"component"` as their final type argument for component queries, or `"app" | "component"` for helpers that accept both targets and only use operations such as `collect`.
 
 ### Install a child component
 

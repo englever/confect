@@ -24,6 +24,13 @@ import type { FunctionReference } from "convex/server";
 export type ComponentApi<Name extends string | undefined = string | undefined> =
   {
     counter: {
+      cancel: FunctionReference<
+        "mutation",
+        "internal",
+        { id: string },
+        null,
+        Name
+      >;
       create: FunctionReference<
         "mutation",
         "internal",
@@ -87,6 +94,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { count: string; run: string },
         string,
+        Name
+      >;
+      scheduleAndCancel: FunctionReference<
+        "mutation",
+        "internal",
+        { run: string },
+        { after: string; at: string; control: string },
         Name
       >;
       storageUrl: FunctionReference<

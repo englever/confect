@@ -91,6 +91,45 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
       }),
   );
 
+  it.effect(
+    "cancels component jobs from both scheduling methods before their deadlines",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const run = String(yield* Random.next);
+        const ids = yield* Effect.promise(() =>
+          client.mutation(api.groups.components.scheduleAndCancel, { run }),
+        );
+        expect(ids).toEqual({
+          after: expect.any(String),
+          at: expect.any(String),
+          control: expect.any(String),
+        });
+        const result = yield* Effect.promise(() =>
+          client.query(api.groups.components.list, { run }),
+        ).pipe(
+          Effect.repeat({
+            schedule: Schedule.spaced("100 millis"),
+            until: (rows) => rows.first.length > 0,
+          }),
+          Effect.timeout("10 seconds"),
+        );
+        expect(result).toEqual({ first: [17], second: [] });
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.components.cancel, { id: ids.control }),
+          ),
+        ).toBeNull();
+        yield* Effect.promise(() =>
+          expect(
+            client.mutation(api.groups.components.cancel, {
+              id: "invalid-scheduled-id",
+            }),
+          ).rejects.toThrow(/Invalid.*(?:scheduled function|ID)/),
+        );
+      }),
+  );
+
   it.effect("uses component-scoped storage across the host boundary", () =>
     Effect.gen(function* () {
       const { client } = yield* LocalBackend.LocalBackend;

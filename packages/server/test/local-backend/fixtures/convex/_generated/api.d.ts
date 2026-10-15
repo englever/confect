@@ -77,6 +77,7 @@ export declare const api: {
       >;
     };
     components: {
+      cancel: FunctionReference<"mutation", "public", { id: string }, null>;
       declaredError: FunctionReference<
         "mutation",
         "public",
@@ -148,6 +149,12 @@ export declare const api: {
         "public",
         { run: string },
         string
+      >;
+      scheduleAndCancel: FunctionReference<
+        "mutation",
+        "public",
+        { run: string },
+        { after: string; at: string; control: string }
       >;
       seed: FunctionReference<
         "mutation",

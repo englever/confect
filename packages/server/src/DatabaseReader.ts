@@ -30,7 +30,8 @@ export interface DatabaseReaderService<
       : DataModel.DocumentWithName<
           IncludedDataModel<DatabaseSchema_>,
           TableName
-        >
+        >,
+    DatabaseSchema_["target"]["kind"]
   >;
 }
 
