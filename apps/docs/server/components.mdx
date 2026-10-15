@@ -1,7 +1,7 @@
 ---
 icon: "component"
 title: "Components"
-description: "Install Convex components, bind published Confect contracts, and author components with scoped IDs and Effect handlers."
+description: "Install Convex components, bind published Confect contracts, author components with scoped IDs and Effect handlers, and pass typed callbacks."
 ---
 
 Convex [components](https://docs.convex.dev/components) are configured in `convex/convex.config.ts`. Unless your backend has a [backend declaration](/server/backend-declaration), Confect does not manage that file, and you configure components with the vanilla Convex API. With a declaration, you mount components with `App.mount` in `confect/app.ts`, and `confect codegen` writes `convex/convex.config.ts` for you.
@@ -185,6 +185,148 @@ export const child = Component.bind(childContract, components.child, {
 
 The `parentScope` keeps child IDs associated with the enclosing installation when a parent contract returns them. Omit it when binding in the root application.
 
+## Call back into the host
+
+A component sometimes needs to call a function its host owns: an email component reports that a message bounced, a job queue reports that a job finished. The component declares a callback contract, the host creates a handle for one of its functions, and the component stores the handle and runs it later.
+
+### Declare a contract
+
+Declare contracts in the component with `Callback.mutation`, `Callback.query`, or `Callback.action`. The id has the form `"<component>/<event>"`. `args`, `returns`, and `error` are thunks, as in `FunctionSpec`, so declaring a contract builds no schema. Name a declared error for the fact it reports.
+
+```ts src/confect/callbacks.ts
+import { Callback } from "@confect/core";
+import * as Schema from "effect/Schema";
+
+export class EventRejected extends Schema.TaggedError<EventRejected>()(
+  "EventRejected",
+  { reason: Schema.String },
+) {}
+
+export const Status = Schema.Literals(["queued", "sent", "bounced"]);
+
+export const OnEvent = Callback.mutation("email/onEvent", {
+  args: () => ({ emailId: Schema.String, status: Status }),
+  returns: () => Schema.Null,
+  error: () => EventRejected,
+});
+```
+
+The module imports nothing from `@confect/server`, so a host can import the contract and its errors when it implements the callback.
+
+### Store and run a handle
+
+`Callback.handle(OnEvent)` is the schema of a handle. On the wire and in the database it is a string (`v.string()`); in handlers it is a reference that `MutationRunner`, `QueryRunner`, `ActionRunner`, and `Scheduler` accept. Use it in function args and table fields:
+
+```ts src/confect/tables/emails.ts
+import { Callback, Table } from "@confect/core";
+import * as Schema from "effect/Schema";
+import { OnEvent, Status } from "../callbacks";
+
+export default Table.make(() =>
+  Schema.Struct({
+    to: Schema.String,
+    status: Status,
+    onEvent: Callback.handle(OnEvent),
+  }),
+);
+```
+
+Run the stored handle like any other reference. Args are encoded and returns decoded with the contract's codecs, and the contract's declared errors arrive in the Effect error channel:
+
+```ts
+const notify = (id: Id<"emails">) =>
+  Effect.gen(function* () {
+    const reader = yield* DatabaseReader;
+    const runner = yield* MutationRunner;
+    const scheduler = yield* Scheduler;
+    const email = yield* reader.table("emails").get(id);
+
+    yield* runner
+      .runMutation(email.onEvent, { emailId: id, status: "bounced" })
+      .pipe(
+        Effect.catchTag("EventRejected", (rejected) =>
+          Effect.log(rejected.reason),
+        ),
+      );
+
+    yield* scheduler.runAfter(Duration.zero, email.onEvent, {
+      emailId: id,
+      status: "sent",
+    });
+  });
+```
+
+A handle accepts only the args its contract declares, and a handle made for one contract is not assignable to a field typed with another, even when the shapes match.
+
+### Create a handle in the host
+
+The host creates a handle with `Callback.create` from `@confect/server` and passes it as an ordinary argument:
+
+```ts confect/emails.impl.ts
+import { Callback } from "@confect/server";
+import { OnEvent } from "@example/email/callbacks";
+import refs from "./_generated/refs";
+import { MutationRunner } from "./_generated/services";
+import { email } from "./email";
+
+const send = Effect.gen(function* () {
+  const onEvent = yield* Callback.create(OnEvent, refs.internal.emails.onEvent);
+  const runner = yield* MutationRunner;
+  return yield* runner.runMutation(email.email.send, { to, onEvent });
+});
+```
+
+`Callback.create` checks the reference against the contract twice: its types at compile time, and the validators Convex compiles for both when the host creates the handle. The validator check is the guarantee. The type check catches the common mistakes where you write the call.
+
+At compile time it compares the types that cross the wire:
+
+- The function type: a query cannot stand in for a mutation contract.
+- Args and returns: the host's encoded args and returns must equal the contract's, with a component's IDs compared as strings. Convex's validator rejects any field the host does not declare, so a host that accepts wider args is refused too. A host that returns `Schema.Finite` (a number on the wire) does not satisfy a contract that returns `Schema.FiniteFromString` (a string on the wire), even though both decode to `number`. Reuse the contract's schemas, which the component exports with the contract.
+- Errors: the host's errors, including those of its middleware, must all be declared by the contract and decode with its codecs. The host may declare fewer errors.
+
+When a check fails, the compiler error names the first mismatch, for example `the ref's encoded args differ from the args "email/onEvent" sends`. Because a component's IDs compare as strings, the host may type an ID the component sends with `Component.id`. An ID of one of the host's own tables is not a string: the host's validator accepts only IDs of that table. Internal and public references both satisfy a contract. Pass the host's generated reference: a reference typed from values alone, such as a bound component's reference or a parameter annotated `Ref.Ref`, has no codecs left to compare and is refused, as is a reference built with middleware attachments typed without their middleware.
+
+Before it asks Convex for a handle, `Callback.create` compiles the contract's and the reference's args, returns and errors to Convex validators and compares them. Args and returns must compile to the same validators, with union members in any order. The host's errors must all be declared by the contract, either the same schema or one that compiles to the same validator. The host may declare fewer errors. Reuse the contract's error classes: a rebuilt error schema that Convex cannot compile, such as one holding a template literal, is refused. A mismatch fails the effect with `CallbackContractMismatch`, whose message names the side and both validators:
+
+```text
+The host function does not satisfy callback contract "email/onEvent": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.
+```
+
+An unsupported args or returns schema on either side also fails the effect with `CallbackContractMismatch`. Its `expected` field describes the contract's schema and `actual` describes the host's. An unsupported description contains `kind: "unsupported"` and a `reason` naming the schema type, such as `TemplateLiteral`.
+
+This catches what the types cannot show, such as field names hidden behind a `Record` type. A mismatch is a wiring mistake, so most hosts let it fail the function with `Effect.orDie`. A plain Convex reference (`Ref.fromFunctionReference`) carries no codecs, so only the compile-time check applies to it. Both checks compare IDs as the application sees them, so a host that is itself a component has its own IDs compared as strings, although its deployed validator accepts only IDs of that table.
+
+Validators do not capture everything a codec checks. Tuples with the same elements in another order compile to the same validator, a refinement such as `Schema.NonEmptyString` compiles to plain `v.string()`, a recursive schema compiles to `v.any()`, and `Schema.DateFromString` and `Schema.DurationFromString` both compile to `v.string()`. The compile-time check still compares tuples by position. Codecs that differ only in refinements, recursive structure or how they decode pass both checks.
+
+A package that wraps its component in a client can accept the host's reference and create the handle itself. Forward the reference's type to keep the check at the caller:
+
+```ts src/confect/client.ts
+import { Callback as CallbackContract, type Ref } from "@confect/core";
+import { Callback } from "@confect/server";
+import * as Effect from "effect/Effect";
+import { OnEvent } from "./callbacks";
+
+export const send = <R extends Ref.Any>(args: {
+  readonly to: string;
+  readonly onEvent: R & CallbackContract.Check<typeof OnEvent, R>;
+}) =>
+  Effect.gen(function* () {
+    const onEvent = yield* Callback.create<typeof OnEvent, R>(
+      OnEvent,
+      args.onEvent,
+    );
+    // ...
+  });
+```
+
+### Runtime behavior
+
+- A handle string is stable across deploys of the same code. Its format differs between `convex-test` and a real backend, so never assert it in tests.
+- Creating a handle for a function that is not deployed is a defect (`Function handle not found`).
+- If a host removes a function after handing it out, running the stored handle fails with the same message, and `Scheduler.runAfter` fails when it schedules rather than when the job runs.
+- A call whose args the host's validator rejects reaches the component as a defect, not a typed error. That is a contract breach, not an expected failure.
+- `Callback.toFuture(ref)` views a reference as Convex's `FunctionReference_future` with its wire types, for `createFunctionHandle` and clients that accept it. Workpool's `onComplete` option (0.4.14) accepts only the classic `FunctionReference` type.
+
 ## Publish the package
 
 Build the Convex and Confect trees to JavaScript and emit their TypeScript declarations. Preserve relative imports and the generated files they reference, or bundle the corresponding entry points. A package whose output mirrors `src/` under `dist/` can expose:
@@ -208,7 +350,7 @@ Build the Convex and Confect trees to JavaScript and emit their TypeScript decla
 }
 ```
 
-Include the runtime dependencies used by your component (`effect` and the relevant `@confect/*` packages), and declare compatible Convex requirements. The Confect contract's dependency graph must contain specs and codecs, not implementation modules. Include all transitive contract declarations as well as the deployable functions and schema in the package.
+Export callback contracts and their errors from their own client-safe entry point (for example `./callbacks`) so a host can implement a callback without importing the component's functions. Include the runtime dependencies used by your component (`effect` and the relevant `@confect/*` packages), and declare compatible Convex requirements. The Confect contract's dependency graph must contain specs and codecs, not implementation modules. Include all transitive contract declarations as well as the deployable functions and schema in the package.
 
 Vanilla Convex consumers install `@example/counter/convex.config.js` and call its generated component API without importing the Confect contract. They supply encoded arguments and receive encoded results; for example, `Schema.FiniteFromString` is a string on the wire. They observe declared failures as Convex errors rather than Effect failures. Confect consumers bind the additional `/confect` export to get decoding and typed errors.
 

@@ -79,13 +79,17 @@ export type ConfectRef<
   ReturnsSchema_ extends Schema.Codec<any, any>,
   ErrorSchema_ extends Schema.Codec<any, any> = never,
   MiddlewareError_ = never,
+  MiddlewareEncodedError_ = never,
 > = ConfectRefWithTypes<
   RuntimeAndFunctionType_,
   FunctionVisibility_,
   ArgsFields_,
   Schema.Struct.Type<ArgsFields_>,
   ReturnsSchema_["Type"],
-  ErrorSchema_["Type"] | MiddlewareError_
+  ErrorSchema_["Type"] | MiddlewareError_,
+  ReturnsSchema_,
+  ErrorSchema_,
+  ErrorSchema_["Encoded"] | MiddlewareEncodedError_
 >;
 
 /**
@@ -93,6 +97,11 @@ export type ConfectRef<
  * derived value types avoids repeatedly expanding `Schema.Struct` for every
  * leaf in a generated ref tree; the public `ConfectRef` alias still derives the
  * same values from its fields and schemas.
+ *
+ * The codecs keep their own types so that a ref's wire encoding stays visible
+ * to type-level checks, and `~EncodedError` carries the wire form of every
+ * error the function can fail with, middleware included. A ref built from value
+ * types alone (`Ref`) has no codecs to keep and erases them.
  */
 interface ConfectRefWithTypes<
   RuntimeAndFunctionType_ extends RuntimeAndFunctionType.RuntimeAndFunctionType,
@@ -101,6 +110,9 @@ interface ConfectRefWithTypes<
   Args_ extends DefaultFunctionArgs,
   Returns_,
   Error_,
+  ReturnsSchema_ extends Schema.Codec<any, any> = Schema.Codec<any, any>,
+  ErrorSchema_ extends Schema.Codec<any, any> = Schema.Codec<any, any>,
+  EncodedError_ = any,
 > extends Base<
   RuntimeAndFunctionType_,
   FunctionVisibility_,
@@ -110,11 +122,12 @@ interface ConfectRefWithTypes<
 > {
   readonly _tag: "Confect";
   readonly args: FunctionProvenance.ArgsSchema<ArgsFields_>;
-  readonly returns: Schema.Codec<any, any>;
+  readonly returns: ReturnsSchema_;
   readonly kind: FunctionProvenance.ConfectKind;
   readonly middlewareSpecs: ReadonlyArray<MiddlewareSpec.AnyMiddlewareSpec>;
   readonly middlewareAttachments: ReadonlyArray<MiddlewareAttachment.MiddlewareAttachment>;
-  readonly error?: Schema.Codec<any, any>;
+  readonly error?: ErrorSchema_;
+  readonly "~EncodedError": EncodedError_;
 }
 
 export interface ConvexRef<
@@ -276,6 +289,37 @@ export type Returns<Ref_> = Ref_ extends { readonly "~Returns": infer Returns_ }
   ? Returns_
   : never;
 
+/**
+ * The returns codec carried by a Confect-provenance ref.
+ */
+export type ReturnsSchema<Ref_> = Ref_ extends {
+  readonly _tag: "Confect";
+  readonly returns: infer ReturnsSchema_ extends Schema.Codec<any, any>;
+}
+  ? ReturnsSchema_
+  : never;
+
+/**
+ * The wire form of every error a ref can fail with: its function's declared
+ * error and its middleware's errors.
+ */
+export type EncodedError<Ref_> = Ref_ extends {
+  readonly "~EncodedError": infer EncodedError_;
+}
+  ? EncodedError_
+  : never;
+
+/**
+ * The function's own error codec carried by a Confect-provenance ref; errors
+ * contributed by middleware are not part of it.
+ */
+export type ErrorSchema<Ref_> = Ref_ extends {
+  readonly _tag: "Confect";
+  readonly error?: infer ErrorSchema_;
+}
+  ? Extract<ErrorSchema_, Schema.Codec<any, any>>
+  : never;
+
 export type Error<Ref_> = Ref_ extends { readonly "~Error": infer Error_ }
   ? Error_
   : never;
@@ -285,9 +329,15 @@ export type FunctionReference<Ref_ extends Any> = ConvexFunctionReference<
   GetFunctionVisibility<Ref_>
 >;
 
+/**
+ * The ref type of a function spec. Errors from middleware attached to the
+ * function are included; pass the errors of middleware attached to its groups
+ * as `MiddlewareError` and `MiddlewareEncodedError`.
+ */
 export type FromFunctionSpec<
   FunctionSpec_ extends FunctionSpec.AnyWithProps,
   MiddlewareError = never,
+  MiddlewareEncodedError = never,
 > = FromFunctionSpecHelper<
   FunctionSpec_,
   FunctionSpec.GetRuntimeAndFunctionType<FunctionSpec_>,
@@ -295,7 +345,14 @@ export type FromFunctionSpec<
   FunctionSpec.ArgsFields<FunctionSpec_>,
   FunctionSpec.Args<FunctionSpec_>,
   FunctionSpec.Returns<FunctionSpec_>,
-  FunctionSpec.Error<FunctionSpec_> | MiddlewareError
+  | FunctionSpec.Error<FunctionSpec_>
+  | MiddlewareSpec.Error<FunctionSpec.MiddlewareSpecs<FunctionSpec_>>
+  | MiddlewareError,
+  FunctionSpec.ReturnsSchema<FunctionSpec_>,
+  FunctionSpec.ErrorSchema<FunctionSpec_>,
+  | FunctionSpec.EncodedError<FunctionSpec_>
+  | MiddlewareSpec.EncodedError<FunctionSpec.MiddlewareSpecs<FunctionSpec_>>
+  | MiddlewareEncodedError
 >;
 
 type FromFunctionSpecHelper<
@@ -306,6 +363,9 @@ type FromFunctionSpecHelper<
   Args_ extends DefaultFunctionArgs,
   Returns_,
   Error_,
+  ReturnsSchema_ extends Schema.Codec<any, any>,
+  ErrorSchema_ extends Schema.Codec<any, any>,
+  EncodedError_,
 > =
   FunctionSpec_ extends FunctionSpec.WithFunctionProvenance<
     FunctionSpec_,
@@ -328,7 +388,10 @@ type FromFunctionSpecHelper<
           ArgsFields_,
           Args_,
           Returns_,
-          Error_
+          Error_,
+          ReturnsSchema_,
+          ErrorSchema_,
+          EncodedError_
         >
       : Ref<
           RuntimeAndFunctionType_,
@@ -338,7 +401,10 @@ type FromFunctionSpecHelper<
           Error_
         >;
 
-export const make = <FunctionSpec_ extends FunctionSpec.AnyWithProps>(
+export const make = <
+  FunctionSpec_ extends FunctionSpec.AnyWithProps,
+  GroupMiddlewareSpec_ extends MiddlewareSpec.AnyMiddlewareSpec = never,
+>(
   /**
    * The namespace portion of a Convex function name, i.e. the part before the
    * colon. For example, for `myGroupDir/myGroupMod:myFunc` this would be
@@ -346,8 +412,14 @@ export const make = <FunctionSpec_ extends FunctionSpec.AnyWithProps>(
    */
   convexFunctionNamespace: string,
   functionSpec: FunctionSpec_,
-  groupMiddlewareAttachments: ReadonlyArray<MiddlewareAttachment.MiddlewareAttachment> = [],
-): FromFunctionSpec<FunctionSpec_> => {
+  groupMiddlewareAttachments: ReadonlyArray<
+    MiddlewareAttachment.MiddlewareAttachment<GroupMiddlewareSpec_>
+  > = [],
+): FromFunctionSpec<
+  FunctionSpec_,
+  MiddlewareSpec.Error<GroupMiddlewareSpec_>,
+  MiddlewareSpec.EncodedError<GroupMiddlewareSpec_>
+> => {
   const convexFunctionName = `${convexFunctionNamespace}:${functionSpec.name}`;
 
   return Match.value(functionSpec.functionProvenance).pipe(
@@ -360,31 +432,52 @@ export const make = <FunctionSpec_ extends FunctionSpec.AnyWithProps>(
           convexFunctionName,
         }) as Any,
     ),
-    Match.tag("Confect", (provenance): Any => {
-      const ref = {
-        [TypeId]: TypeId as TypeId,
-        _tag: "Confect" as const,
-        convexFunctionName,
-        kind: provenance.kind,
-        middlewareAttachments: [
-          ...groupMiddlewareAttachments,
-          ...functionSpec.middlewareAttachments,
-        ],
-        get middlewareSpecs() {
-          return this.middlewareAttachments.map(({ spec }) => spec);
-        },
-      };
-
-      Lazy.defineProperty(ref, "args", () => provenance.args);
-      Lazy.defineProperty(ref, "returns", () => provenance.returns);
-      if ("error" in provenance) {
-        Lazy.defineProperty(ref, "error", () => provenance.error);
-      }
-
-      return ref as unknown as Any;
-    }),
+    Match.tag("Confect", (provenance): Any =>
+      fromProvenance(convexFunctionName, provenance, [
+        ...groupMiddlewareAttachments,
+        ...functionSpec.middlewareAttachments,
+      ]),
+    ),
     Match.exhaustive,
-  ) as FromFunctionSpec<FunctionSpec_>;
+  ) as FromFunctionSpec<
+    FunctionSpec_,
+    MiddlewareSpec.Error<GroupMiddlewareSpec_>,
+    MiddlewareSpec.EncodedError<GroupMiddlewareSpec_>
+  >;
+};
+
+/**
+ * Build a Confect ref that runs with `provenance`'s codecs. Pass
+ * `functionReference` when the function has no local name: an installed
+ * component's function or a function handle. The ref reads `args`, `returns`
+ * and `error` from the provenance on first use, so building it forces no
+ * schema.
+ */
+export const fromProvenance = (
+  convexFunctionName: string,
+  provenance: FunctionProvenance.AnyConfect,
+  middlewareAttachments: ReadonlyArray<MiddlewareAttachment.MiddlewareAttachment>,
+  functionReference?: ConvexFunctionReference<any, any>,
+): AnyConfect => {
+  const ref = {
+    [TypeId]: TypeId as TypeId,
+    _tag: "Confect" as const,
+    convexFunctionName,
+    ...(functionReference === undefined ? {} : { functionReference }),
+    kind: provenance.kind,
+    middlewareAttachments,
+    get middlewareSpecs() {
+      return middlewareAttachments.map(({ spec }) => spec);
+    },
+  };
+
+  Lazy.defineProperty(ref, "args", () => provenance.args);
+  Lazy.defineProperty(ref, "returns", () => provenance.returns);
+  if ("error" in provenance) {
+    Lazy.defineProperty(ref, "error", () => provenance.error);
+  }
+
+  return ref as unknown as AnyConfect;
 };
 
 export const getConvexFunctionName = (ref: Any): string =>

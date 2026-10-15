@@ -6,6 +6,7 @@ export * as ActionCtx from "./ActionCtx";
 export * as ActionRunner from "./ActionRunner";
 export * as Auth from "./Auth";
 export * as BlobNotFoundError from "./BlobNotFoundError";
+export * as Callback from "./Callback";
 export * as ConvexConfigProvider from "./ConvexConfigProvider";
 export * as ConvexLogger from "./ConvexLogger";
 export * as CronJob from "./CronJob";

@@ -31,6 +31,51 @@ export declare const api: {
       confectWithRawDateNow: FunctionReference<"query", "public", {}, number>;
       confectWithSpan: FunctionReference<"query", "public", {}, number>;
     };
+    callbacks: {
+      breach: FunctionReference<
+        "mutation",
+        "public",
+        { id: string },
+        "success" | "failure" | "defect"
+      >;
+      createMismatched: FunctionReference<
+        "mutation",
+        "public",
+        {},
+        { message: string; outcome: "success" | "failure" | "defect" }
+      >;
+      createRetired: FunctionReference<
+        "mutation",
+        "public",
+        {},
+        { message: string; outcome: "success" | "failure" | "defect" }
+      >;
+      events: FunctionReference<
+        "query",
+        "public",
+        { run: string },
+        Array<"queued" | "sent" | "delivered" | "bounced">
+      >;
+      get: FunctionReference<
+        "query",
+        "public",
+        { id: string },
+        { run: string; status: "queued" | "sent" | "delivered" | "bounced" }
+      >;
+      sameHandle: FunctionReference<
+        "mutation",
+        "public",
+        { id: string },
+        boolean
+      >;
+      send: FunctionReference<"mutation", "public", { run: string }, string>;
+      setStatus: FunctionReference<
+        "mutation",
+        "public",
+        { id: string; status: "queued" | "sent" | "delivered" | "bounced" },
+        string | null
+      >;
+    };
     components: {
       declaredError: FunctionReference<
         "mutation",
@@ -259,6 +304,14 @@ export declare const api: {
  */
 export declare const internal: {
   groups: {
+    callbacks: {
+      onEvent: FunctionReference<
+        "mutation",
+        "internal",
+        { run: string; status: "queued" | "sent" | "delivered" | "bounced" },
+        null
+      >;
+    };
     transactions: {
       read: FunctionReference<
         "query",

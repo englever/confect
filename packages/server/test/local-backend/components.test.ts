@@ -278,4 +278,92 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
         expect(result.second).toBeGreaterThan(baseline.second);
       }),
   );
+
+  it.effect(
+    "a component stores a host handle and calls it back across a redeploy",
+    () =>
+      Effect.gen(function* () {
+        const { client, redeploy } = yield* LocalBackend.LocalBackend;
+        const run = String(yield* Random.next);
+        const events = Effect.promise(() =>
+          client.query(api.groups.callbacks.events, { run }),
+        );
+        const id = yield* Effect.promise(() =>
+          client.mutation(api.groups.callbacks.send, { run }),
+        );
+        expect(
+          yield* events.pipe(
+            Effect.repeat({
+              schedule: Schedule.spaced("100 millis"),
+              until: (statuses) => statuses.length > 0,
+            }),
+            Effect.timeout("15 seconds"),
+          ),
+        ).toEqual(["sent"]);
+
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.setStatus, {
+              id,
+              status: "bounced",
+            }),
+          ),
+        ).toBe(`host refuses bounced for ${run}`);
+        expect(
+          yield* Effect.promise(() =>
+            client.query(api.groups.callbacks.get, { id }),
+          ),
+        ).toEqual({ run, status: "bounced" });
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.breach, { id }),
+          ),
+        ).toBe("defect");
+
+        yield* redeploy;
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.sameHandle, { id }),
+          ),
+        ).toBe(true);
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.setStatus, {
+              id,
+              status: "delivered",
+            }),
+          ),
+        ).toBeNull();
+        expect(yield* events).toEqual(["sent", "delivered"]);
+      }),
+  );
+
+  it.effect(
+    "fails to create a handle for a function that is not deployed",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const observed = yield* Effect.promise(() =>
+          client.mutation(api.groups.callbacks.createRetired, {}),
+        );
+        yield* Effect.logInfo("handle for an undeployed function", observed);
+        expect(observed.outcome).toBe("defect");
+      }),
+  );
+
+  it.effect(
+    "refuses to create a handle for a host function whose validators differ from the contract",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.createMismatched, {}),
+          ),
+        ).toEqual({
+          outcome: "failure",
+          message: `The host function does not satisfy callback contract "counter/onReported": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.`,
+        });
+      }),
+  );
 });

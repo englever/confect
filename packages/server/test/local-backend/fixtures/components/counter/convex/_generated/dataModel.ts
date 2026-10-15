@@ -44,6 +44,22 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  deliveries: {
+    document: {
+      onEvent: string;
+      run: string;
+      status: "queued" | "sent" | "delivered" | "bounced";
+      _id: Id<"deliveries">;
+      _creationTime: number;
+    };
+    fieldPaths: "_creationTime" | "_id" | "onEvent" | "run" | "status";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
 };
 
 /**

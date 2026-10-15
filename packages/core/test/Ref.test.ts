@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, expectTypeOf, test } from "@effect/vitest";
 import { vi } from "vitest";
 
+import * as FunctionProvenance from "@confect/core/FunctionProvenance";
 import * as FunctionSpec from "@confect/core/FunctionSpec";
 import * as MiddlewareSpec from "@confect/core/MiddlewareSpec";
 import * as PaginationOptions from "@confect/core/PaginationOptions";
@@ -252,6 +253,69 @@ describe("FunctionReference", () => {
     >();
   });
 
+  test("keeps the declared returns and error codecs", () => {
+    class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+      id: Schema.String,
+    }) {}
+    const _spec = FunctionSpec.internalMutation({
+      name: "count",
+      returns: () => Schema.FiniteFromString,
+      error: () => NotFound,
+    });
+    type Ref_ = Ref.FromFunctionSpec<typeof _spec>;
+    expectTypeOf<Ref.ReturnsSchema<Ref_>>().toEqualTypeOf<
+      typeof Schema.FiniteFromString
+    >();
+    expectTypeOf<Ref.ReturnsSchema<Ref_>["Encoded"]>().toEqualTypeOf<string>();
+    expectTypeOf<Ref.ErrorSchema<Ref_>>().toEqualTypeOf<typeof NotFound>();
+    expectTypeOf<Ref.Returns<Ref_>>().toEqualTypeOf<number>();
+    expectTypeOf<Ref.Error<Ref_>>().toEqualTypeOf<NotFound>();
+  });
+
+  test("a function without an error schema has no error codec", () => {
+    const _spec = FunctionSpec.internalMutation({
+      name: "reset",
+      returns: () => Schema.Null,
+    });
+    type Ref_ = Ref.FromFunctionSpec<typeof _spec>;
+    expectTypeOf<Ref.ErrorSchema<Ref_>>().toBeNever();
+  });
+
+  test("ConfectRef keeps its codecs, so encodings tell refs apart", () => {
+    type StringOnWire = Ref.ConfectRef<
+      RuntimeAndFunctionType.ConvexMutation,
+      "internal",
+      {},
+      typeof Schema.FiniteFromString
+    >;
+    type NumberOnWire = Ref.ConfectRef<
+      RuntimeAndFunctionType.ConvexMutation,
+      "internal",
+      {},
+      typeof Schema.Finite
+    >;
+    expectTypeOf<
+      Ref.ReturnsSchema<StringOnWire>["Encoded"]
+    >().toEqualTypeOf<string>();
+    expectTypeOf<Ref.Returns<NumberOnWire>>().toEqualTypeOf<
+      Ref.Returns<StringOnWire>
+    >();
+    expectTypeOf<NumberOnWire>().not.toExtend<StringOnWire>();
+    expectTypeOf<NumberOnWire>().toExtend<Ref.AnyMutation>();
+  });
+
+  test("Ref built from value types erases its codecs", () => {
+    type Ref_ = Ref.Ref<
+      RuntimeAndFunctionType.ConvexQuery,
+      "public",
+      {},
+      number
+    >;
+    expectTypeOf<Ref.ReturnsSchema<Ref_>>().toEqualTypeOf<
+      Schema.Codec<any, any>
+    >();
+  });
+
   test("empty args", () => {
     const _spec = FunctionSpec.internalMutation({
       name: "reset",
@@ -366,6 +430,45 @@ describe("OptionalArgs", () => {
       [args: { readonly id: string }]
     >();
   });
+});
+
+describe("fromProvenance", () => {
+  it.effect(
+    "calls the given reference through the provenance's codecs without building them first",
+    () =>
+      Effect.gen(function* () {
+        const args = vi.fn(() => ({ count: Schema.FiniteFromString }));
+        const returns = vi.fn(() => Schema.FiniteFromString);
+        const native = makeFunctionReference<"mutation">("counter:add");
+        const ref = Ref.fromProvenance(
+          "counter:add",
+          FunctionProvenance.Confect(args, returns),
+          [],
+          native,
+        ) as Ref.ConfectRef<
+          RuntimeAndFunctionType.ConvexMutation,
+          "internal",
+          { readonly count: typeof Schema.FiniteFromString },
+          typeof Schema.FiniteFromString
+        >;
+        expect([args.mock.calls.length, returns.mock.calls.length]).toEqual([
+          0, 0,
+        ]);
+
+        const seen = MutableRef.make<ReadonlyArray<unknown>>([]);
+        const result = yield* Ref.runWithCodec(
+          ref,
+          { count: 2 },
+          (functionReference, encodedArgs) => {
+            MutableRef.set(seen, [functionReference, encodedArgs]);
+            return Promise.resolve("3");
+          },
+        );
+        expect(result).toBe(3);
+        expect(MutableRef.get(seen)).toEqual([native, { count: "2" }]);
+        expect(Ref.getConvexFunctionName(ref)).toBe("counter:add");
+      }),
+  );
 });
 
 describe("getFunctionReference", () => {

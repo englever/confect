@@ -99,4 +99,38 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       ticks: FunctionReference<"query", "internal", {}, number, Name>;
       uploadUrl: FunctionReference<"mutation", "internal", {}, string, Name>;
     };
+    deliveries: {
+      breach: FunctionReference<
+        "mutation",
+        "internal",
+        { id: string },
+        "success" | "failure" | "defect",
+        Name
+      >;
+      get: FunctionReference<
+        "query",
+        "internal",
+        { id: string },
+        {
+          onEvent: string;
+          run: string;
+          status: "queued" | "sent" | "delivered" | "bounced";
+        },
+        Name
+      >;
+      send: FunctionReference<
+        "mutation",
+        "internal",
+        { onEvent: string; run: string },
+        string,
+        Name
+      >;
+      setStatus: FunctionReference<
+        "mutation",
+        "internal",
+        { id: string; status: "queued" | "sent" | "delivered" | "bounced" },
+        string | null,
+        Name
+      >;
+    };
   };

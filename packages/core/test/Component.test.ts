@@ -1,5 +1,6 @@
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
 import {
+  Callback,
   Component,
   FunctionSpec,
   GenericId,
@@ -438,5 +439,50 @@ describe("published component contracts", () => {
         },
       },
     );
+  });
+});
+
+describe("callback handles through a binding", () => {
+  const OnEvent = Callback.mutation("counter/onEvent", {
+    args: () => ({ id: ItemId }),
+    returns: () => Schema.Null,
+  });
+  const handleSpec = Spec.make().add(
+    GroupSpec.makeAt("deliveries")
+      .addFunction(
+        FunctionSpec.publicMutation({
+          name: "send",
+          args: () => ({ onEvent: Callback.handle(OnEvent) }),
+          returns: () => Schema.Null,
+        }),
+      )
+      .addFunction(
+        FunctionSpec.publicQuery({
+          name: "get",
+          returns: () => Callback.handle(OnEvent),
+        }),
+      ),
+  );
+  const bound = Component.bind(
+    Component.make(handleSpec, scope, []),
+    (
+      componentsGeneric() as unknown as {
+        first: Component.Api<typeof handleSpec, "first">;
+      }
+    ).first,
+  );
+
+  it("passes a handle through bound args and returns as the component's handle", () => {
+    expectTypeOf<Ref.Returns<typeof bound.deliveries.get>>().toEqualTypeOf<
+      Callback.Handle<typeof OnEvent>
+    >();
+    expectTypeOf<Ref.Args<typeof bound.deliveries.send>>().toEqualTypeOf<{
+      readonly onEvent: Callback.Handle<typeof OnEvent>;
+    }>();
+    const text = "function://;callbacks:onEvent";
+    const handle = Ref.decodeReturnsSync(bound.deliveries.get, text);
+    expect(
+      Ref.encodeArgsSync(bound.deliveries.send, { onEvent: handle }),
+    ).toEqual({ onEvent: text });
   });
 });

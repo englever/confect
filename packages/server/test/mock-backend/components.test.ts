@@ -7,6 +7,9 @@ import innerConvexSchema from "../local-backend/fixtures/components/inner/convex
 import middleConvexSchema from "../local-backend/fixtures/components/middle/convex/schema";
 import parentConvexSchema from "../local-backend/fixtures/components/parent/convex/schema";
 import { Rejected as CounterRejected } from "../local-backend/fixtures/components/counter/confect/counter.spec";
+import localConvexSchema from "../local-backend/fixtures/confect/_generated/convexSchema";
+import localRefs from "../local-backend/fixtures/confect/_generated/refs";
+import localSchema from "../local-backend/fixtures/confect/_generated/schema";
 import type { Ref } from "@confect/core";
 import { Component } from "@confect/core";
 import {
@@ -568,4 +571,80 @@ it.effect("fetches an installation mounted at the root prefix", () =>
       }),
     ),
   ),
+);
+
+const localHostModules = import.meta.glob([
+  "../local-backend/fixtures/convex/**/*.ts",
+  "../local-backend/fixtures/convex/**/*.js",
+  "!../local-backend/fixtures/convex/**/*.*.*",
+]);
+const LocalHost = TestConfect.TestConfect<typeof localSchema>();
+const callbacks = localRefs.public.groups.callbacks;
+const localHostLayer = TestConfect.layer(
+  localSchema,
+  localConvexSchema,
+  localHostModules,
+);
+
+it.effect(
+  "a component stores a host handle and calls it back through the scheduler and the runner",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* LocalHost;
+      yield* t.registerComponent("first", counterConvexSchema, counterModules);
+      vi.useFakeTimers();
+      const id = yield* t.mutation(callbacks.send, { run: "callbacks" });
+      yield* t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(yield* t.query(callbacks.events, { run: "callbacks" })).toEqual([
+        "sent",
+      ]);
+      expect(yield* t.query(callbacks.get, { id })).toEqual({
+        run: "callbacks",
+        status: "sent",
+      });
+
+      expect(
+        yield* t.mutation(callbacks.setStatus, { id, status: "delivered" }),
+      ).toBeNull();
+      expect(
+        yield* t.mutation(callbacks.setStatus, { id, status: "bounced" }),
+      ).toBe("host refuses bounced for callbacks");
+      // The component's catch path commits its patch; the host's failed
+      // call rolls back the event it recorded before rejecting.
+      expect(yield* t.query(callbacks.get, { id })).toEqual({
+        run: "callbacks",
+        status: "bounced",
+      });
+      expect(yield* t.query(callbacks.events, { run: "callbacks" })).toEqual([
+        "sent",
+        "delivered",
+      ]);
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
+      Effect.provide(localHostLayer),
+    ),
+);
+
+it.effect(
+  "a handle called with args outside the host's validator fails the component as a defect",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* LocalHost;
+      yield* t.registerComponent("first", counterConvexSchema, counterModules);
+      const id = yield* t.mutation(callbacks.send, { run: "breach" });
+      expect(yield* t.mutation(callbacks.breach, { id })).toBe("defect");
+      expect(yield* t.mutation(callbacks.sameHandle, { id })).toBe(true);
+    }).pipe(Effect.provide(localHostLayer)),
+);
+
+it.effect(
+  "refuses to create a handle for a host function whose validators differ from the contract",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* LocalHost;
+      expect(yield* t.mutation(callbacks.createMismatched, {})).toEqual({
+        outcome: "failure",
+        message: `The host function does not satisfy callback contract "counter/onReported": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.`,
+      });
+    }).pipe(Effect.provide(localHostLayer)),
 );

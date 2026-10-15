@@ -285,6 +285,43 @@ describe("make", () => {
 });
 
 describe("middleware error unions", () => {
+  it("carries the wire encoding of function and middleware errors", () => {
+    class Blocked extends Schema.TaggedError<Blocked>()("Blocked", {
+      at: Schema.FiniteFromString,
+    }) {}
+    class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+      id: Schema.String,
+    }) {}
+
+    class GateMutations extends MiddlewareSpec.MiddlewareSpec<GateMutations>()(
+      "GateMutations",
+      {
+        error: () => Blocked,
+        functionTypes: { query: false, mutation: true, action: false },
+      },
+    ) {}
+
+    const spec = Spec.make().add(
+      GroupSpec.makeAt("gated")
+        .middleware(GateMutations)
+        .addFunction(
+          FunctionSpec.publicMutation({
+            name: "update",
+            returns: () => Schema.Null,
+            error: () => NotFound,
+          }),
+        ),
+    );
+    const refs = Refs.make(spec);
+
+    expectTypeOf<
+      Ref.EncodedError<typeof refs.public.gated.update>
+    >().toEqualTypeOf<
+      | { readonly _tag: "Blocked"; readonly at: string }
+      | { readonly _tag: "NotFound"; readonly id: string }
+    >();
+  });
+
   it("adds them to Confect refs and keeps them off plain Convex refs", () => {
     class Blocked extends Schema.TaggedError<Blocked>()("Blocked", {}) {}
 
