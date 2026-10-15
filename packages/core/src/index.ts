@@ -1,6 +1,7 @@
 export * as FunctionProvenance from "./FunctionProvenance";
 export * as FunctionSpec from "./FunctionSpec";
 export * as GenericId from "./GenericId";
+export * as App from "./App";
 export * as Component from "./Component";
 export * as Env from "./Env";
 export * as IdScope from "./IdScope";
