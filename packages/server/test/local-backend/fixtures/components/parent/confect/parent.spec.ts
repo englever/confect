@@ -17,4 +17,24 @@ export default GroupSpec.make()
       args: () => ({ run: Schema.String }),
       returns: () => Schema.Array(Component.schema(child, counters.Doc)),
     }),
+  )
+  .addFunction(
+    FunctionSpec.publicMutation({
+      name: "deepCreate",
+      args: () => ({ run: Schema.String, count: Schema.FiniteFromString }),
+      returns: () => Schema.Null,
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "deepList",
+      args: () => ({ run: Schema.String }),
+      returns: () => Schema.Array(Schema.Finite),
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "deepLocation",
+      returns: () => Schema.String,
+    }),
   );

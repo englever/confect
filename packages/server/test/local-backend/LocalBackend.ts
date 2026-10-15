@@ -23,6 +23,11 @@ class BackendVersionLookupError extends Schema.TaggedError<BackendVersionLookupE
   { message: Schema.String },
 ) {}
 
+class BackendEnvironmentSetupError extends Schema.TaggedError<BackendEnvironmentSetupError>()(
+  "BackendEnvironmentSetupError",
+  { name: Schema.String, exitCode: Schema.Finite },
+) {}
+
 export class LocalBackend extends Context.Service<
   LocalBackend,
   { readonly client: ConvexHttpClient }
@@ -33,10 +38,10 @@ const URL = "http://127.0.0.1:3210";
 
 // Knobs read by `crates/common/src/knobs.rs` in convex-backend. Lowering
 // these shrinks `MAX_CACHE_AGE` (= `USER_TIMEOUT` + `SYSTEM_TIMEOUT` + 1s,
-// per `crates/application/src/cache/mod.rs`) to ~3s so a single test run
-// can wait past the cache eviction window.
-const USER_TIMEOUT_SECONDS = 1;
-const SYSTEM_TIMEOUT_SECONDS = 1;
+// per `crates/application/src/cache/mod.rs`) to ~11s. The nested fixtures need
+// more than one second per UDF; cache tests derive their wait from these limits.
+const USER_TIMEOUT_SECONDS = 5;
+const SYSTEM_TIMEOUT_SECONDS = 5;
 
 /**
  * Duration after which a query whose handler observed time is evicted from the
@@ -71,6 +76,12 @@ const make = Effect.gen(function* () {
       "--typecheck=disable",
       "--codegen=disable",
       "--tail-logs=disable",
+      "--local-cloud-port",
+      "3210",
+      "--local-site-port",
+      "3211",
+      "--local-backend-version",
+      "precompiled-2026-10-06-a3538c6",
     ],
     {
       cwd: fixturesDir,
@@ -110,6 +121,24 @@ const make = Effect.gen(function* () {
       );
 
       if (readySeen) {
+        for (const [name, value] of [
+          ["COMPONENT_MARKER", "from-app"],
+          ["COMPONENT_HOST_ONLY", "host-only"],
+        ] as const) {
+          const code = yield* spawner.exitCode(
+            ChildProcess.make("pnpm", ["convex", "env", "set", name, value], {
+              cwd: fixturesDir,
+              shell: true,
+              extendEnv: true,
+              env: { CONVEX_AGENT_MODE: "anonymous" },
+            }),
+          );
+          if (code !== 0)
+            return yield* new BackendEnvironmentSetupError({
+              name,
+              exitCode: code,
+            });
+        }
         return { client: new ConvexHttpClient(URL) };
       }
 

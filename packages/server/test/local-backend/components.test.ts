@@ -124,7 +124,14 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
             client.query(api.groups.components.hasAuth, {}),
           ),
         ).toBe(false);
-        for (const mount of ["first", "second", "left/child", "right/child"]) {
+        for (const mount of [
+          "first",
+          "second",
+          "left/child",
+          "right/child",
+          "left/deep/child/child",
+          "right/deep/child/child",
+        ]) {
           const body = yield* HttpClient.get(
             `http://127.0.0.1:3211/${mount}/health`,
           ).pipe(
@@ -147,6 +154,127 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
           );
           expect(missing.status).toBe(404);
         }
+      }),
+  );
+  it.effect(
+    "keeps three nested child bindings isolated across parent installations",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const run = String(yield* Random.next);
+        const result = yield* Effect.promise(() =>
+          client.mutation(api.groups.components.deepRoundTrip, { run }),
+        );
+        expect(result).toEqual({
+          left: [23],
+          right: [29],
+          paths: ["left/deep/child/child", "right/deep/child/child"],
+        });
+      }),
+  );
+
+  it.effect(
+    "decodes a declared component error as its tagged class with its payload",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const run = String(yield* Random.next);
+        const result = yield* Effect.promise(() =>
+          client.mutation(api.groups.components.declaredError, { run }),
+        );
+        expect(result).toEqual({
+          tag: "Rejected",
+          run,
+          instance: true,
+          remaining: [],
+        });
+      }),
+  );
+
+  it.effect(
+    "paginates a component QueryStream without gaps or rows from another installation",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const run = String(yield* Random.next);
+        yield* Effect.promise(() =>
+          client.mutation(api.groups.components.seed, {
+            run,
+            counts: [1, 2, 3, 4, 5],
+          }),
+        );
+        const page = (cursor: string | null) =>
+          Effect.promise(() =>
+            client.query(api.groups.components.page, {
+              run,
+              cursor,
+              numItems: 2,
+            }),
+          );
+        const firstPage = yield* page(null);
+        const secondPage = yield* page(firstPage.continueCursor);
+        const lastPage = yield* page(secondPage.continueCursor);
+        expect([firstPage.page, secondPage.page, lastPage.page]).toEqual([
+          [1, 2],
+          [3, 4],
+          [5],
+        ]);
+        expect([firstPage.isDone, secondPage.isDone, lastPage.isDone]).toEqual([
+          false,
+          false,
+          true,
+        ]);
+      }),
+  );
+
+  it.effect(
+    "reads declared environment bindings through Config separately for each mount",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const result = yield* Effect.promise(() =>
+          client.query(api.groups.components.environment, {}),
+        );
+        expect(result).toEqual({
+          first: {
+            required: "first-required",
+            directRequired: "first-required",
+            optional: "first-optional",
+            marker: "from-app",
+            unbound: "unset",
+            hostOnly: "unset",
+          },
+          second: {
+            required: "second-required",
+            directRequired: "second-required",
+            optional: "from-app",
+            marker: "from-app",
+            unbound: "unset",
+            hostOnly: "unset",
+          },
+        });
+      }),
+  );
+
+  it.effect(
+    "runs component crons in both installations after the observed baseline",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        const read = Effect.promise(() =>
+          client.query(api.groups.components.ticks, {}),
+        );
+        const baseline = yield* read;
+        const result = yield* read.pipe(
+          Effect.repeat({
+            schedule: Schedule.spaced("100 millis"),
+            until: (counts) =>
+              counts.first > baseline.first && counts.second > baseline.second,
+          }),
+          Effect.timeout("15 seconds"),
+        );
+        expect(result.first).toBeGreaterThan(baseline.first);
+        expect(result.second).toBeGreaterThan(baseline.second);
       }),
   );
 });

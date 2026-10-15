@@ -6,4 +6,6 @@ export default Table.make(() =>
     run: Schema.String,
     count: Schema.FiniteFromString,
   }),
-).index("by_run", ["run"]);
+)
+  .index("by_run", ["run"])
+  .index("by_run_count", ["run", "count"]);

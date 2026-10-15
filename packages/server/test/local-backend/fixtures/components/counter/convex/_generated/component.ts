@@ -31,6 +31,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         string,
         Name
       >;
+      environment: FunctionReference<
+        "query",
+        "internal",
+        {},
+        {
+          directRequired: string;
+          hostOnly: string;
+          marker: string;
+          optional: string;
+          required: string;
+          unbound: string;
+        },
+        Name
+      >;
       hasAuth: FunctionReference<"query", "internal", {}, boolean, Name>;
       list: FunctionReference<
         "query",
@@ -42,6 +56,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           count: string;
           run: string;
         }>,
+        Name
+      >;
+      location: FunctionReference<"query", "internal", {}, string, Name>;
+      page: FunctionReference<
+        "query",
+        "internal",
+        { cursor: string | null; numItems: number; run: string },
+        {
+          continueCursor: string;
+          isDone: boolean;
+          page: Array<{
+            _creationTime: number;
+            _id: string;
+            count: string;
+            run: string;
+          }>;
+        },
         Name
       >;
       reject: FunctionReference<
@@ -65,6 +96,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         string,
         Name
       >;
+      ticks: FunctionReference<"query", "internal", {}, number, Name>;
       uploadUrl: FunctionReference<"mutation", "internal", {}, string, Name>;
     };
   };

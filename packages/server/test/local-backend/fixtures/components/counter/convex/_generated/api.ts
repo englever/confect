@@ -28,6 +28,19 @@ export const api: {
       { count: string; run: string },
       Id<"counters">
     >;
+    environment: FunctionReference<
+      "query",
+      "public",
+      {},
+      {
+        directRequired: string;
+        hostOnly: string;
+        marker: string;
+        optional: string;
+        required: string;
+        unbound: string;
+      }
+    >;
     hasAuth: FunctionReference<"query", "public", {}, boolean>;
     list: FunctionReference<
       "query",
@@ -39,6 +52,22 @@ export const api: {
         count: string;
         run: string;
       }>
+    >;
+    location: FunctionReference<"query", "public", {}, string>;
+    page: FunctionReference<
+      "query",
+      "public",
+      { cursor: string | null; numItems: number; run: string },
+      {
+        continueCursor: string;
+        isDone: boolean;
+        page: Array<{
+          _creationTime: number;
+          _id: Id<"counters">;
+          count: string;
+          run: string;
+        }>;
+      }
     >;
     reject: FunctionReference<"mutation", "public", { run: string }, null>;
     schedule: FunctionReference<
@@ -53,6 +82,7 @@ export const api: {
       { id: Id<"_storage"> },
       string
     >;
+    ticks: FunctionReference<"query", "public", {}, number>;
     uploadUrl: FunctionReference<"mutation", "public", {}, string>;
   };
 } = anyApi as any;
@@ -65,6 +95,10 @@ export const api: {
  * const myFunctionReference = internal.myModule.myFunction;
  * ```
  */
-export const internal: {} = anyApi as any;
+export const internal: {
+  counter: {
+    tick: FunctionReference<"mutation", "internal", {}, null>;
+  };
+} = anyApi as any;
 
 export const components = componentsGeneric() as unknown as {};

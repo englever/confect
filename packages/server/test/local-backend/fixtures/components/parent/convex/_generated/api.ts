@@ -28,6 +28,19 @@ export const api: {
       { count: string; run: string },
       string
     >;
+    deepCreate: FunctionReference<
+      "mutation",
+      "public",
+      { count: string; run: string },
+      null
+    >;
+    deepList: FunctionReference<
+      "query",
+      "public",
+      { run: string },
+      Array<number>
+    >;
+    deepLocation: FunctionReference<"query", "public", {}, string>;
     list: FunctionReference<
       "query",
       "public",
@@ -49,4 +62,5 @@ export const internal: {} = anyApi as any;
 
 export const components = componentsGeneric() as unknown as {
   child: import("../../components/counter/convex/_generated/component.js").ComponentApi<"child">;
+  deep: import("../../components/middle/convex/_generated/component.js").ComponentApi<"deep">;
 };

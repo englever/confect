@@ -5,10 +5,20 @@ import counters from "./_generated/tables/counters";
 
 export class Rejected extends Schema.TaggedError<Rejected>()("Rejected", {
   id: Id("counters"),
+  run: Schema.String,
 }) {}
 
 export const StorageId = GenericId.GenericId("_storage", scope);
 export const ScheduledId = GenericId.GenericId("_scheduled_functions", scope);
+
+export const Environment = Schema.Struct({
+  required: Schema.String,
+  directRequired: Schema.String,
+  optional: Schema.String,
+  marker: Schema.String,
+  unbound: Schema.String,
+  hostOnly: Schema.String,
+});
 
 export default GroupSpec.make()
   .addFunction(
@@ -58,4 +68,38 @@ export default GroupSpec.make()
       name: "hasAuth",
       returns: () => Schema.Boolean,
     }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "location",
+      returns: () => Schema.String,
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "page",
+      args: () => ({
+        run: Schema.String,
+        cursor: Schema.NullOr(Schema.String),
+        numItems: Schema.Int,
+      }),
+      returns: () =>
+        Schema.Struct({
+          page: Schema.Array(counters.Doc),
+          continueCursor: Schema.String,
+          isDone: Schema.Boolean,
+        }),
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({
+      name: "environment",
+      returns: () => Environment,
+    }),
+  )
+  .addFunction(
+    FunctionSpec.internalMutation({ name: "tick", returns: () => Schema.Null }),
+  )
+  .addFunction(
+    FunctionSpec.publicQuery({ name: "ticks", returns: () => Schema.Int }),
   );

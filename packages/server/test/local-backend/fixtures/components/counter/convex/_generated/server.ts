@@ -39,6 +39,10 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly COMPONENT_MARKER: string | undefined;
+  readonly COMPONENT_OPTIONAL: string | undefined;
+  readonly COMPONENT_REQUIRED: string;
+  readonly COMPONENT_UNBOUND: string | undefined;
 };
 
 /**

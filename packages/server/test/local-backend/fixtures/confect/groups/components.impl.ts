@@ -1,6 +1,7 @@
 import { FunctionImpl, GroupImpl } from "@confect/server";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { Rejected } from "../../components/counter/confect/counter.spec";
 import schema from "../_generated/schema";
 import { MutationRunner, QueryRunner } from "../_generated/services";
 import { first, second, left, right } from "../componentBindings";
@@ -79,7 +80,102 @@ const hasAuth = FunctionImpl.make(schema, spec, "hasAuth", () =>
   }).pipe(Effect.orDie),
 );
 
+const deepRoundTrip = FunctionImpl.make(
+  schema,
+  spec,
+  "deepRoundTrip",
+  ({ run }) =>
+    Effect.gen(function* () {
+      const mutation = yield* MutationRunner;
+      const query = yield* QueryRunner;
+      yield* mutation.runMutation(left.parent.deepCreate, { run, count: 23 });
+      yield* mutation.runMutation(right.parent.deepCreate, { run, count: 29 });
+      return {
+        left: yield* query.runQuery(left.parent.deepList, { run }),
+        right: yield* query.runQuery(right.parent.deepList, { run }),
+        paths: [
+          yield* query.runQuery(left.parent.deepLocation, {}),
+          yield* query.runQuery(right.parent.deepLocation, {}),
+        ],
+      };
+    }).pipe(Effect.orDie),
+);
+const declaredError = FunctionImpl.make(
+  schema,
+  spec,
+  "declaredError",
+  ({ run }) =>
+    Effect.gen(function* () {
+      const mutation = yield* MutationRunner;
+      const query = yield* QueryRunner;
+      const error = yield* mutation
+        .runMutation(first.counter.reject, { run })
+        .pipe(
+          Effect.andThen(() =>
+            Effect.die("Expected the component mutation to fail"),
+          ),
+          Effect.catchTag("Rejected", Effect.succeed),
+        );
+      return {
+        tag: error._tag,
+        run: error.run,
+        // oxlint-disable-next-line effecttsgo/instance-of-schema -- Class identity is the behavior under test.
+        instance: error instanceof Rejected,
+        remaining: (yield* query.runQuery(first.counter.list, { run })).map(
+          (doc) => doc.count,
+        ),
+      };
+    }).pipe(Effect.orDie),
+);
+const seed = FunctionImpl.make(schema, spec, "seed", ({ run, counts }) =>
+  Effect.gen(function* () {
+    const mutation = yield* MutationRunner;
+    for (const count of counts)
+      yield* mutation.runMutation(first.counter.create, { run, count });
+    yield* mutation.runMutation(second.counter.create, { run, count: 99 });
+    return null;
+  }).pipe(Effect.orDie),
+);
+const page = FunctionImpl.make(schema, spec, "page", (args) =>
+  Effect.gen(function* () {
+    const query = yield* QueryRunner;
+    const result = yield* query.runQuery(first.counter.page, args);
+    return { ...result, page: result.page.map((doc) => doc.count) };
+  }).pipe(Effect.orDie),
+);
+const environment = FunctionImpl.make(schema, spec, "environment", () =>
+  Effect.gen(function* () {
+    const query = yield* QueryRunner;
+    return {
+      first: yield* query.runQuery(first.counter.environment, {}),
+      second: yield* query.runQuery(second.counter.environment, {}),
+    };
+  }).pipe(Effect.orDie),
+);
+const ticks = FunctionImpl.make(schema, spec, "ticks", () =>
+  Effect.gen(function* () {
+    const query = yield* QueryRunner;
+    return {
+      first: yield* query.runQuery(first.counter.ticks, {}),
+      second: yield* query.runQuery(second.counter.ticks, {}),
+    };
+  }).pipe(Effect.orDie),
+);
+
 export default GroupImpl.make(schema, spec).pipe(
-  Layer.provide([exercise, schedule, list, uploadUrl, storageUrl, hasAuth]),
+  Layer.provide([
+    exercise,
+    schedule,
+    list,
+    uploadUrl,
+    storageUrl,
+    hasAuth,
+    deepRoundTrip,
+    declaredError,
+    seed,
+    page,
+    environment,
+    ticks,
+  ]),
   GroupImpl.finalize,
 );

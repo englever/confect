@@ -32,6 +32,46 @@ export declare const api: {
       confectWithSpan: FunctionReference<"query", "public", {}, number>;
     };
     components: {
+      declaredError: FunctionReference<
+        "mutation",
+        "public",
+        { run: string },
+        {
+          instance: boolean;
+          remaining: Array<number>;
+          run: string;
+          tag: "Rejected";
+        }
+      >;
+      deepRoundTrip: FunctionReference<
+        "mutation",
+        "public",
+        { run: string },
+        { left: Array<number>; paths: Array<string>; right: Array<number> }
+      >;
+      environment: FunctionReference<
+        "query",
+        "public",
+        {},
+        {
+          first: {
+            directRequired: string;
+            hostOnly: string;
+            marker: string;
+            optional: string;
+            required: string;
+            unbound: string;
+          };
+          second: {
+            directRequired: string;
+            hostOnly: string;
+            marker: string;
+            optional: string;
+            required: string;
+            unbound: string;
+          };
+        }
+      >;
       exercise: FunctionReference<
         "mutation",
         "public",
@@ -51,13 +91,31 @@ export declare const api: {
         { run: string },
         { first: Array<number>; second: Array<number> }
       >;
+      page: FunctionReference<
+        "query",
+        "public",
+        { cursor: string | null; numItems: number; run: string },
+        { continueCursor: string; isDone: boolean; page: Array<number> }
+      >;
       schedule: FunctionReference<
         "mutation",
         "public",
         { run: string },
         string
       >;
+      seed: FunctionReference<
+        "mutation",
+        "public",
+        { counts: Array<number>; run: string },
+        null
+      >;
       storageUrl: FunctionReference<"query", "public", { id: string }, string>;
+      ticks: FunctionReference<
+        "query",
+        "public",
+        {},
+        { first: number; second: number }
+      >;
       uploadUrl: FunctionReference<"mutation", "public", {}, string>;
     };
     metadata: {

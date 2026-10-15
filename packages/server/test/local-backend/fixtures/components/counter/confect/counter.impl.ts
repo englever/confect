@@ -1,4 +1,5 @@
-import { FunctionImpl, GroupImpl } from "@confect/server";
+import { FunctionImpl, GroupImpl, QueryStream } from "@confect/server";
+import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -7,6 +8,7 @@ import schema from "./_generated/schema";
 import refs from "./_generated/refs";
 import {
   DatabaseReader,
+  ExecutionMetadata,
   DatabaseWriter,
   QueryCtx,
   Scheduler,
@@ -37,7 +39,7 @@ const reject = FunctionImpl.make(schema, counter, "reject", ({ run }) =>
       .table("counters")
       .insert({ run, count: 999 })
       .pipe(Effect.orDie);
-    return yield* new Rejected({ id });
+    return yield* new Rejected({ id, run });
   }),
 );
 const schedule = FunctionImpl.make(schema, counter, "schedule", (args) =>
@@ -66,6 +68,71 @@ const hasAuth = FunctionImpl.make(schema, counter, "hasAuth", () =>
   Effect.map(QueryCtx, (ctx) => Predicate.hasProperty(ctx, "auth")),
 );
 
+const location = FunctionImpl.make(schema, counter, "location", () =>
+  Effect.gen(function* () {
+    const execution = yield* ExecutionMetadata;
+    return (yield* execution.getFunction()).componentPath;
+  }),
+);
+const page = FunctionImpl.make(
+  schema,
+  counter,
+  "page",
+  ({ run, cursor, numItems }) =>
+    Effect.gen(function* () {
+      const reader = yield* DatabaseReader;
+      return yield* QueryStream.paginate(
+        reader
+          .table("counters")
+          .stream("by_run_count", (range) => range.eq("run", run)),
+        { cursor, numItems },
+      );
+    }).pipe(Effect.orDie),
+);
+const environment = FunctionImpl.make(schema, counter, "environment", () =>
+  Effect.gen(function* () {
+    const required = yield* Config.String("COMPONENT_REQUIRED");
+    const optional = yield* Config.String("COMPONENT_OPTIONAL").pipe(
+      Config.withDefault("unset"),
+    );
+    const marker = yield* Config.String("COMPONENT_MARKER").pipe(
+      Config.withDefault("unset"),
+    );
+    const unbound = yield* Config.String("COMPONENT_UNBOUND").pipe(
+      Config.withDefault("unset"),
+    );
+    const hostOnly = yield* Config.String("COMPONENT_HOST_ONLY").pipe(
+      Config.withDefault("unset"),
+    );
+    return {
+      required,
+      optional,
+      marker,
+      unbound,
+      hostOnly,
+      // Compare native reads with Config at the actual component boundary.
+      // oxlint-disable-next-line effecttsgo/process-env-in-effect -- Compare direct native reads with Config for this installation.
+      directRequired: process.env.COMPONENT_REQUIRED ?? "unset",
+    };
+  }).pipe(Effect.orDie),
+);
+const tick = FunctionImpl.make(schema, counter, "tick", () =>
+  Effect.gen(function* () {
+    const writer = yield* DatabaseWriter;
+    yield* writer.table("counters").insert({ run: "cron", count: 1 });
+    return null;
+  }).pipe(Effect.orDie),
+);
+const ticks = FunctionImpl.make(schema, counter, "ticks", () =>
+  Effect.gen(function* () {
+    const reader = yield* DatabaseReader;
+    return (yield* reader
+      .table("counters")
+      .index("by_run", (range) => range.eq("run", "cron"))
+      .collect()).length;
+  }).pipe(Effect.orDie),
+);
+
 export default GroupImpl.make(schema, counter).pipe(
   Layer.provide([
     create,
@@ -75,6 +142,11 @@ export default GroupImpl.make(schema, counter).pipe(
     uploadUrl,
     storageUrl,
     hasAuth,
+    location,
+    page,
+    environment,
+    tick,
+    ticks,
   ]),
   GroupImpl.finalize,
 );

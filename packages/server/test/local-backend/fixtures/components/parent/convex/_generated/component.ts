@@ -31,6 +31,21 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         string,
         Name
       >;
+      deepCreate: FunctionReference<
+        "mutation",
+        "internal",
+        { count: string; run: string },
+        null,
+        Name
+      >;
+      deepList: FunctionReference<
+        "query",
+        "internal",
+        { run: string },
+        Array<number>,
+        Name
+      >;
+      deepLocation: FunctionReference<"query", "internal", {}, string, Name>;
       list: FunctionReference<
         "query",
         "internal",

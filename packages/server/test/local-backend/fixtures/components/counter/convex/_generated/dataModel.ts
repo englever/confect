@@ -39,6 +39,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_run: ["run", "_creationTime"];
+      by_run_count: ["run", "count", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
