@@ -26,7 +26,10 @@ export interface ServedBackend {
  * until its scope closes; `answers` lets a test put another program on a port.
  * Node commands (codegen, `convex deploy`) succeed and record the push target.
  */
-export const fakeBackend = (options?: { readonly exitCode?: number }) => {
+export const fakeBackend = (options?: {
+  readonly exitCode?: number;
+  readonly answerAs?: string;
+}) => {
   const served: ServedBackend[] = [];
   const pushes: string[] = [];
   const downloads: string[] = [];
@@ -43,6 +46,7 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
           const args = command.args;
           const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
           let stdout = Stream.empty as Stream.Stream<Uint8Array>;
+          let stop = Effect.void;
           if (command.command === process.execPath) {
             if (args[1] === "deploy")
               pushes.push(
@@ -65,14 +69,18 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
             );
           } else {
             const origin = args[args.indexOf("--convex-origin") + 1];
-            answers.set(origin, args[args.indexOf("--instance-name") + 1]);
+            answers.set(
+              origin,
+              options?.answerAs ?? args[args.indexOf("--instance-name") + 1],
+            );
             let running = true;
             served.push({ args, running: () => running });
+            stop = Effect.sync(() => {
+              running = false;
+              answers.delete(origin);
+            });
             yield* Effect.addFinalizer(() =>
-              Effect.sync(() => {
-                running = false;
-                answers.delete(origin);
-              }).pipe(
+              stop.pipe(
                 Effect.andThen(
                   Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)),
                 ),
@@ -84,7 +92,10 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
             exitCode: Deferred.await(exited),
             isRunning: Effect.map(Deferred.isDone(exited), (done) => !done),
             kill: () =>
-              Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)).pipe(
+              stop.pipe(
+                Effect.andThen(
+                  Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)),
+                ),
                 Effect.asVoid,
               ),
             stdin: undefined as never,

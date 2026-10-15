@@ -15,7 +15,6 @@ import {
   backendVersion,
   boot,
   LocalBackendError,
-  LocalBackendVersionChange,
 } from "../src/internal/LocalBackend";
 import { fakeBackend } from "./fixtures/LocalBackend";
 
@@ -130,13 +129,13 @@ describe("LocalBackend", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  it.live("refuses a data directory written by another backend version", () =>
+  it.live("keeps running the release that created its data directory", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const fake = fakeBackend();
       const { directory, run } = yield* harness(fake);
-      yield* run(boot(name, directory)).pipe(Effect.scoped);
+      const first = yield* run(boot(name, directory)).pipe(Effect.scoped);
       const identity = path.join(directory, "identity.json");
       yield* fs.writeFileString(
         identity,
@@ -145,16 +144,10 @@ describe("LocalBackend", () => {
           "precompiled-2020-01-01-0000000",
         ),
       );
-      expect(
-        yield* run(boot(name, directory)).pipe(Effect.scoped, Effect.result),
-      ).toEqual(
-        Result.fail(
-          new LocalBackendVersionChange({
-            deploymentName: name,
-            current: "precompiled-2020-01-01-0000000",
-            requested: "precompiled-2026-10-06-a3538c6",
-          }),
-        ),
+      const restarted = yield* run(boot(name, directory));
+      expect(restarted.url).toBe(first.url);
+      expect(fake.downloads.at(-1)).toMatch(
+        /\/download\/precompiled-2020-01-01-0000000\/convex-local-backend-/,
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
@@ -177,7 +170,7 @@ describe("LocalBackend", () => {
   );
 
   it.live(
-    "moves to free ports when another program holds a saved port, and refuses a second backend on its own data",
+    "keeps its saved ports, failing typed when another program or an orphaned backend holds one",
     () =>
       Effect.gen(function* () {
         const fake = fakeBackend();
@@ -186,17 +179,89 @@ describe("LocalBackend", () => {
         const scope = yield* Scope.make();
         yield* occupy(port(first.url)).pipe(Scope.provide(scope));
         fake.answers.set(first.url, "someone-else");
-        const moved = yield* run(boot(name, directory)).pipe(Effect.scoped);
-        expect(moved.url).not.toBe(first.url);
-        expect(moved.url).toMatch(/^http:\/\/127\.0\.0\.1:335\d$/);
-        yield* Scope.close(scope, Exit.void);
-        yield* occupy(port(moved.url));
-        fake.answers.set(moved.url, name);
+        expect(
+          yield* run(boot(name, directory)).pipe(Effect.scoped, Effect.result),
+        ).toEqual(
+          Result.fail(
+            new LocalBackendError({ deploymentName: name, reason: "ports" }),
+          ),
+        );
+        fake.answers.set(first.url, name);
         expect(
           yield* run(boot(name, directory)).pipe(Effect.scoped, Effect.result),
         ).toEqual(
           Result.fail(
             new LocalBackendError({ deploymentName: name, reason: "running" }),
+          ),
+        );
+        yield* Scope.close(scope, Exit.void);
+        fake.answers.delete(first.url);
+        const restarted = yield* run(boot(name, directory)).pipe(Effect.scoped);
+        expect(restarted.url).toBe(first.url);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("refuses a second backend over data another one is serving", () =>
+    Effect.gen(function* () {
+      const fake = fakeBackend();
+      const { directory, run } = yield* harness(fake);
+      yield* run(boot(name, directory));
+      expect(
+        yield* run(boot(name, directory)).pipe(Effect.scoped, Effect.result),
+      ).toEqual(
+        Result.fail(
+          new LocalBackendError({ deploymentName: name, reason: "running" }),
+        ),
+      );
+      expect(fake.served).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("stops a backend that never answers with its own name", () =>
+    Effect.gen(function* () {
+      const fake = fakeBackend({ answerAs: "someone-else" });
+      const { directory, run } = yield* harness(fake);
+      expect(yield* run(boot(name, directory)).pipe(Effect.result)).toEqual(
+        Result.fail(
+          new LocalBackendError({ deploymentName: name, reason: "ports" }),
+        ),
+      );
+      expect(fake.served[0]?.running()).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.live.each(["65536-65537", "3399-3300", "0-10", "3300"])(
+    "rejects the port range %s with a configuration error",
+    (range) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const home = yield* fs.makeTempDirectoryScoped({
+          prefix: "confect-local-backend-",
+        });
+        expect(
+          yield* boot(name, path.join(home, name)).pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                fakeBackend().layer,
+                ConfigProvider.layer(
+                  ConfigProvider.fromUnknown({
+                    HOME: home,
+                    LOCALAPPDATA: home,
+                    CONFECT_LOCAL_BACKEND_PORTS: range,
+                  }),
+                ),
+              ),
+            ),
+            Effect.scoped,
+            Effect.result,
+          ),
+        ).toEqual(
+          Result.fail(
+            new LocalBackendError({
+              deploymentName: name,
+              reason: "configuration",
+            }),
           ),
         );
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

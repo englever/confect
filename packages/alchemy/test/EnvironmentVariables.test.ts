@@ -2,10 +2,15 @@ import { it, expect, assert } from "@effect/vitest";
 import { Unowned } from "alchemy/AdoptPolicy";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as EnvironmentVariables from "@confect/alchemy/EnvironmentVariables";
-import { ConvexClient, ConvexNotFound } from "@confect/alchemy/ConvexClient";
+import {
+  ConvexApiError,
+  ConvexClient,
+  ConvexNotFound,
+} from "@confect/alchemy/ConvexClient";
 import { lifecycle, mockClient } from "./fixtures/ConvexClient";
 
 const props: EnvironmentVariables.EnvironmentVariablesProps = {
@@ -276,5 +281,52 @@ it.effect(
       yield* provider.delete({ ...lifecycle, olds: news, output });
       expect(Object.keys(mock.state.variables)).toEqual([]);
     }).pipe(Effect.provide(mock.layer));
+  },
+);
+
+it.effect(
+  "leaves a stopped local backend's variables in its data instead of failing removal",
+  () => {
+    const mock = mockClient();
+    const failure = (code: "TransportError" | "HttpError") =>
+      Effect.provideService(ConvexClient, {
+        ...mock.client,
+        listEnvironmentVariables: () =>
+          Effect.fail(
+            new ConvexApiError({
+              operation: "listEnvironmentVariables",
+              code,
+              ...(code === "HttpError" ? { status: 500 } : {}),
+            }),
+          ),
+      });
+    const remove = Effect.gen(function* () {
+      const provider = yield* EnvironmentVariables.localProvider;
+      return yield* provider.delete({
+        ...lifecycle,
+        olds: { ...props, url: "http://127.0.0.1:3300" },
+        output: {
+          url: "http://127.0.0.1:3300",
+          deployKey: props.deployKey,
+          ownedNames: ["MANAGED"],
+          variables: { MANAGED: Redacted.make("desired-secret") },
+          originals: {},
+        },
+      });
+    });
+    return Effect.gen(function* () {
+      expect(
+        yield* remove.pipe(failure("TransportError"), Effect.result),
+      ).toEqual(Result.succeed(undefined));
+      expect(yield* remove.pipe(failure("HttpError"), Effect.result)).toEqual(
+        Result.fail(
+          new ConvexApiError({
+            operation: "listEnvironmentVariables",
+            code: "HttpError",
+            status: 500,
+          }),
+        ),
+      );
+    });
   },
 );

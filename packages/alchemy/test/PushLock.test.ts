@@ -1,6 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { AlchemyContext } from "alchemy/AlchemyContext";
+import * as Clock from "effect/Clock";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -8,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   PushLock,
@@ -17,31 +21,34 @@ import {
 
 const serialize = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-const withDotAlchemy = <A, E, R>(
+// Locks live in the user's cache so every checkout on the machine shares
+// them: ~/.cache/confect/alchemy/locks on POSIX, %LOCALAPPDATA% on Windows.
+const withHome = <A, E, R>(
   effect: (paths: {
-    readonly dotAlchemy: string;
+    readonly home: string;
     readonly lockFile: string;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const dotAlchemy = yield* fs.makeTempDirectoryScoped({
+    const home = yield* fs.makeTempDirectoryScoped({
       prefix: "confect-lock-test-",
     });
-    const lockFile = path.join(
-      dotAlchemy,
-      "convex",
-      "locks",
-      "happy-otter-123.lock",
-    );
-    yield* fs.makeDirectory(path.dirname(lockFile), { recursive: true });
-    return yield* effect({ dotAlchemy, lockFile }).pipe(
-      Effect.provideService(AlchemyContext, {
-        dotAlchemy,
-        dev: false,
-        adopt: false,
-      }),
+    const locks =
+      process.platform === "win32"
+        ? path.join(home, "confect", "alchemy", "locks")
+        : path.join(home, ".cache", "confect", "alchemy", "locks");
+    yield* fs.makeDirectory(locks, { recursive: true });
+    return yield* effect({
+      home,
+      lockFile: path.join(locks, "happy-otter-123.lock"),
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ HOME: home, LOCALAPPDATA: home }),
+        ),
+      ),
     );
   });
 
@@ -68,35 +75,88 @@ const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   );
 
 describe("PushLock", () => {
-  it.live("waits while another live process holds the deployment lock", () =>
-    withDotAlchemy(({ lockFile }) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const lock = yield* PushLock;
-        yield* fs.writeFileString(
-          lockFile,
-          serialize({ pid: process.pid, token: "other-process" }),
-        );
-        let entered = false;
-        const fiber = yield* lock
-          .withLock(
+  it.live(
+    "waits for a lock another process holds and takes it once that process exits without releasing it",
+    () =>
+      withHome(({ lockFile }) =>
+        Effect.gen(function* () {
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          const lock = yield* PushLock;
+          // Another process takes the lock by the same protocol and exits
+          // without releasing it, as a crashed push would.
+          const holder = yield* spawner.spawn(
+            ChildProcess.make(
+              process.execPath,
+              [
+                "-e",
+                `const fs = require("node:fs");
+const claim = process.argv[1] + ".other";
+fs.writeFileSync(claim, JSON.stringify({ pid: process.pid, token: "other" }));
+fs.linkSync(claim, process.argv[1]);
+fs.rmSync(claim);
+console.log("held");
+setTimeout(() => process.exit(0), 600);`,
+                lockFile,
+              ],
+              { stdin: "ignore", stderr: "ignore" },
+            ),
+          );
+          const held = yield* Deferred.make<void>();
+          yield* holder.stdout.pipe(
+            Stream.runForEach(() => Deferred.succeed(held, undefined)),
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(held);
+          const exitedAt = yield* holder.exitCode.pipe(
+            Effect.andThen(Clock.currentTimeMillis),
+            Effect.forkScoped,
+          );
+          const enteredAt = yield* lock.withLock(
             "happy-otter-123",
-            Effect.sync(() => {
-              entered = true;
-            }),
-          )
-          .pipe(Effect.forkScoped);
-        yield* Effect.sleep("400 millis");
-        expect(entered).toBe(false);
-        yield* fs.remove(lockFile);
-        yield* Fiber.join(fiber);
-        expect(entered).toBe(true);
+            Clock.currentTimeMillis,
+          );
+          expect(enteredAt).toBeGreaterThanOrEqual(yield* Fiber.join(exitedAt));
+        }),
+      ).pipe(Effect.scoped, provide),
+  );
+
+  it.live("serialises pushes started from different checkouts", () =>
+    withHome(({ home }) =>
+      Effect.gen(function* () {
+        const lock = yield* PushLock;
+        const events: string[] = [];
+        const push = (checkout: string) =>
+          lock
+            .withLock(
+              "happy-otter-123",
+              Effect.gen(function* () {
+                events.push(`start ${checkout}`);
+                yield* Effect.sleep("150 millis");
+                events.push(`end ${checkout}`);
+              }),
+            )
+            .pipe(
+              Effect.provideService(AlchemyContext, {
+                dotAlchemy: `${home}/${checkout}/.alchemy`,
+                dev: false,
+                adopt: false,
+              }),
+            );
+        yield* Effect.all([push("a"), push("b")], {
+          concurrency: "unbounded",
+        });
+        expect(events.map((event) => event.split(" ")[0])).toEqual([
+          "start",
+          "end",
+          "start",
+          "end",
+        ]);
       }),
     ).pipe(provide),
   );
 
   it.live("breaks a lock left behind by a process that has exited", () =>
-    withDotAlchemy(({ lockFile }) =>
+    withHome(({ lockFile }) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const lock = yield* PushLock;
@@ -113,18 +173,19 @@ describe("PushLock", () => {
   );
 
   it.live("fails with a typed timeout when the holder never releases", () =>
-    withDotAlchemy(({ lockFile }) =>
+    withHome(({ lockFile }) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const lock = yield* PushLock;
         yield* fs.writeFileString(
           lockFile,
-          serialize({ pid: process.pid, token: "other-process" }),
+          serialize({ pid: process.pid, token: "other-fiber" }),
         );
-        const result = yield* lock
-          .withLock("happy-otter-123", Effect.void)
-          .pipe(Effect.result);
-        expect(result).toEqual(
+        expect(
+          yield* lock
+            .withLock("happy-otter-123", Effect.void)
+            .pipe(Effect.result),
+        ).toEqual(
           Result.fail(
             new PushLockError({
               deploymentName: "happy-otter-123",
@@ -137,26 +198,54 @@ describe("PushLock", () => {
   );
 
   it.live(
-    "releases the lock when the locked work fails or is interrupted",
+    "stops waiting promptly when interrupted and leaves the holder's lock",
     () =>
-      withDotAlchemy(({ lockFile }) =>
+      withHome(({ lockFile }) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const lock = yield* PushLock;
+          const holder = serialize({ pid: process.pid, token: "other-fiber" });
+          yield* fs.writeFileString(lockFile, holder);
+          const waiting = yield* lock
+            .withLock("happy-otter-123", Effect.void)
+            .pipe(Effect.forkScoped);
+          yield* Effect.sleep("200 millis");
+          const before = yield* Clock.currentTimeMillis;
+          yield* Fiber.interrupt(waiting);
+          expect((yield* Clock.currentTimeMillis) - before).toBeLessThan(500);
+          expect(yield* fs.readFileString(lockFile)).toBe(holder);
+        }),
+      ).pipe(Effect.scoped, provide),
+  );
+
+  it.live(
+    "releases the lock and its claim when the locked work fails or is interrupted",
+    () =>
+      withHome(({ lockFile }) =>
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
           const lock = yield* PushLock;
-          const failed = yield* lock
-            .withLock("happy-otter-123", Effect.fail("push failed"))
-            .pipe(Effect.result);
-          expect(failed).toEqual(Result.fail("push failed"));
+          expect(
+            yield* lock
+              .withLock("happy-otter-123", Effect.fail("push failed"))
+              .pipe(Effect.result),
+          ).toEqual(Result.fail("push failed"));
           expect(yield* fs.exists(lockFile)).toBe(false);
+          const entered = yield* Deferred.make<void>();
           const held = yield* lock
-            .withLock("happy-otter-123", Effect.never)
+            .withLock(
+              "happy-otter-123",
+              Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Effect.never),
+              ),
+            )
             .pipe(Effect.forkScoped);
-          yield* Effect.sleep("200 millis");
+          yield* Deferred.await(entered);
           expect(yield* fs.exists(lockFile)).toBe(true);
           yield* Fiber.interrupt(held);
           expect(yield* fs.readDirectory(path.dirname(lockFile))).toEqual([]);
         }),
-      ).pipe(provide),
+      ).pipe(Effect.scoped, provide),
   );
 });
