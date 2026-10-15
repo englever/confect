@@ -154,3 +154,41 @@ it("labels prefixed wildcard routes at their base path and descendants", () => {
     ["GET", "/v1/elsewhere"],
   ]);
 });
+
+it("distinguishes declared parameters from literal colons in API paths", () => {
+  const actionsApi = HttpApi.make("actions").add(
+    HttpApiGroup.make("actions").add(
+      HttpApiEndpoint.post("cancel", "/items/:id:cancel", {
+        params: Schema.Struct({ id: Schema.String }),
+      }),
+      HttpApiEndpoint.post("archive", "/items/:id:archive", {
+        params: Schema.Struct({ id: Schema.String }),
+      }),
+      HttpApiEndpoint.post("literal", "/literal/:status", {
+        params: Schema.Struct({}),
+      }),
+    ),
+  );
+  const actionsRoutes = HttpApiBuilder.layer(actionsApi).pipe(
+    Layer.provide(
+      HttpApiBuilder.group(actionsApi, "actions", (handlers) =>
+        handlers
+          .handle("cancel", () => Effect.void)
+          .handle("archive", () => Effect.void)
+          .handle("literal", () => Effect.void),
+      ),
+    ),
+  );
+  const router = ConfectHttpRouter.make(actionsRoutes, { api: actionsApi });
+  expect([
+    matchLabel(router, "/items/42:cancel", "POST"),
+    matchLabel(router, "/items/42:archive", "POST"),
+    matchLabel(router, "/literal/:status", "POST"),
+    matchLabel(router, "/literal/ready", "POST"),
+  ]).toEqual([
+    ["POST", "/items/:id:cancel"],
+    ["POST", "/items/:id:archive"],
+    ["POST", "/literal/:status"],
+    ["POST", "/literal/ready"],
+  ]);
+});
