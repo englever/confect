@@ -158,7 +158,7 @@ Keep using `FunctionImpl.make(databaseSchema, group, name, handler)` with the ge
 - Generated raw contexts preserve scoped ID types and omit `auth`.
 - Application `Auth` is unavailable. Pass the identity information your component needs explicitly in function arguments.
 
-The component `Scheduler` interface supports `runAfter` and `runAt`. It does not yet expose `cancel`.
+The component `Scheduler` supports `runAfter`, `runAt`, and `cancel`. Pass the ID returned by either scheduling method to `scheduler.cancel(id)`. The ID belongs to the component's `_scheduled_functions` table. IDs from the application or another component scope fail to compile.
 
 Convex rejects `"use node"` inside components. Keep Node actions in the host application.
 

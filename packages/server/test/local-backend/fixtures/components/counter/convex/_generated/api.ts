@@ -22,6 +22,7 @@ import { anyApi, componentsGeneric } from "convex/server";
  */
 export const api: {
   counter: {
+    cancel: FunctionReference<"mutation", "public", { id: string }, null>;
     create: FunctionReference<
       "mutation",
       "public",
@@ -75,6 +76,16 @@ export const api: {
       "public",
       { count: string; run: string },
       Id<"_scheduled_functions">
+    >;
+    scheduleAndCancel: FunctionReference<
+      "mutation",
+      "public",
+      { run: string },
+      {
+        after: Id<"_scheduled_functions">;
+        at: Id<"_scheduled_functions">;
+        control: Id<"_scheduled_functions">;
+      }
     >;
     storageUrl: FunctionReference<
       "query",

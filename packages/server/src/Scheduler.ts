@@ -52,6 +52,7 @@ export const Scheduler = Context.Service<ReturnType<typeof make>>(
 export type Scheduler = typeof Scheduler.Identifier;
 
 export interface Service<Scope extends IdScope.IdScope = IdScope.App> {
+  cancel(id: GenericId<"_scheduled_functions", Scope>): Effect.Effect<void>;
   runAfter<Ref_ extends Ref.AnyMutation | Ref.AnyAction>(
     delay: Duration.Duration,
     ref: Ref_,

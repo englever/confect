@@ -26,6 +26,25 @@ export default GroupSpec.make()
     }),
   )
   .addFunction(
+    FunctionSpec.publicMutation({
+      name: "scheduleAndCancel",
+      args: () => ({ run: Schema.String }),
+      returns: () =>
+        Schema.Struct({
+          after: Component.id(first, "_scheduled_functions"),
+          at: Component.id(first, "_scheduled_functions"),
+          control: Component.id(first, "_scheduled_functions"),
+        }),
+    }),
+  )
+  .addFunction(
+    FunctionSpec.publicMutation({
+      name: "cancel",
+      args: () => ({ id: Schema.String }),
+      returns: () => Schema.Null,
+    }),
+  )
+  .addFunction(
     FunctionSpec.publicQuery({
       name: "list",
       args: () => ({ run: Schema.String }),

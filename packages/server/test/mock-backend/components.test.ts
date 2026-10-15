@@ -266,6 +266,45 @@ it.effect(
 );
 
 it.effect(
+  "cancels component jobs from runAfter and runAt before they execute",
+  () =>
+    Effect.gen(function* () {
+      vi.useFakeTimers();
+      const t = yield* registerGraph;
+      const ids = yield* t.mutation(mounts.first.counter.scheduleAndCancel, {
+        run: "cancel",
+      });
+      expect(ids).toEqual({
+        after: expect.any(String),
+        at: expect.any(String),
+        control: expect.any(String),
+      });
+      yield* t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(
+        (yield* t.query(mounts.first.counter.list, { run: "cancel" })).map(
+          (doc) => doc.count,
+        ),
+      ).toEqual([17]);
+      expect(
+        yield* t.query(mounts.second.counter.list, { run: "cancel" }),
+      ).toEqual([]);
+      const failure = yield* Effect.exit(
+        t.mutation(mounts.first.counter.cancel, { id: "invalid-scheduled-id" }),
+      );
+      expect(Exit.isFailure(failure)).toBe(true);
+      if (Exit.isFailure(failure))
+        expect(Cause.pretty(failure.cause)).toContain(
+          "Invalid argument `id`, expected ID value but got 'invalid-scheduled-id'",
+        );
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
+      Effect.provide(
+        TestConfect.layer(hostSchema, hostConvexSchema, hostModules),
+      ),
+    ),
+);
+
+it.effect(
   "paginates a component QueryStream across three pages in its own installation",
   () =>
     Effect.gen(function* () {
