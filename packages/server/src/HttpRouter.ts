@@ -120,10 +120,15 @@ export const forSchema =
   <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
     schema: DatabaseSchema_,
   ) =>
-  (routes: Routes<Handler.ActionServices<DatabaseSchema_>>): ConvexHttpRouter =>
+  <Id extends string, Groups extends HttpApiGroup.Constraint>(
+    routes: Routes<Handler.ActionServices<DatabaseSchema_>>,
+    options?: { readonly api?: HttpApi.HttpApi<Id, Groups> | undefined },
+  ): ConvexHttpRouter =>
     makeWithLayer<
       Handler.ActionServices<DatabaseSchema_>,
-      DataModel.ToConvex<DataModel.FromSchema<DatabaseSchema_>>
+      DataModel.ToConvex<DataModel.FromSchema<DatabaseSchema_>>,
+      Id,
+      Groups
     >(
       Match.value(schema.target.kind).pipe(
         Match.when("app", () => routes),
@@ -133,7 +138,7 @@ export const forSchema =
         Match.exhaustive,
       ),
       (ctx) => RegisteredFunction.actionLayer(schema, ctx),
-      undefined,
+      options?.api,
     );
 
 // Convex uses a component-relative path to select its HTTP action but passes
