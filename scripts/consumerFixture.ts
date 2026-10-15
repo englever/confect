@@ -1,0 +1,116 @@
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+
+const encodeJson = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Unknown, { space: 2 }),
+);
+
+export class InvalidConsumerVersion extends Schema.TaggedError<InvalidConsumerVersion>()(
+  "InvalidConsumerVersion",
+  { version: Schema.String },
+) {}
+
+export const consumerManifest = (version: string) => {
+  if (!/^\d+\.\d+\.\d+-englever\.(0|[1-9]\d*)$/.test(version))
+    return Result.fail(new InvalidConsumerVersion({ version }));
+  return Result.succeed({
+    name: "confect-install-check",
+    private: true,
+    type: "module",
+    dependencies: {
+      "@confect/core": `npm:@englever/confect-core@${version}`,
+      "@confect/server": `npm:@englever/confect-server@${version}`,
+      "@confect/test": `npm:@englever/confect-test@${version}`,
+      "@confect/cli": `npm:@englever/confect-cli@${version}`,
+      convex: "1.46.0",
+      "convex-test": "0.0.60",
+      effect: "4.0.1",
+      "@effect/platform-node": "4.0.1",
+    },
+    devDependencies: {
+      "@types/node": "26.6.4",
+      typescript: "7.0.2",
+      vite: "8.3.2",
+      vitest: "5.0.3",
+    },
+    packageManager: "pnpm@12.8.1",
+  });
+};
+
+type ConsumerManifest = Result.Result.Success<
+  ReturnType<typeof consumerManifest>
+>;
+
+export const installCommand = (manifest: ConsumerManifest) =>
+  `pnpm add --strict-peer-dependencies ${Object.entries(manifest.dependencies)
+    .filter(([name]) => name.startsWith("@confect/"))
+    .map(([name, spec]) => `'${name}@${spec}'`)
+    .join(" ")}`;
+
+export const writeConsumer = Effect.fn("ConsumerFixture.write")(function* (
+  destination: string,
+  manifest: ConsumerManifest,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  yield* fs.makeDirectory(destination);
+  const template = path.join(import.meta.dir, "consumer");
+  for (const file of yield* fs.readDirectory(template, { recursive: true })) {
+    if (!file.endsWith(".template")) continue;
+    const target = path.join(destination, file.replace(/\.template$/, ""));
+    yield* fs.makeDirectory(path.dirname(target), { recursive: true });
+    yield* fs.writeFileString(
+      target,
+      yield* fs.readFileString(path.join(template, file)),
+    );
+  }
+  yield* fs.writeFileString(
+    path.join(destination, "package.json"),
+    `${encodeJson(manifest)}\n`,
+  );
+  yield* fs.writeFileString(
+    path.join(destination, "install-command.txt"),
+    `${installCommand(manifest)}\n`,
+  );
+  yield* fs.writeFileString(
+    path.join(destination, "pnpm-workspace.yaml"),
+    [
+      "minimumReleaseAgeExclude:",
+      ...Object.values(manifest.dependencies)
+        .filter((spec) => spec.startsWith("npm:@englever/"))
+        .map((spec) => `  - "${spec.slice(4)}"`),
+      "",
+      "overrides:",
+      `  effect: ${manifest.dependencies.effect}`,
+      `  convex: ${manifest.dependencies.convex}`,
+      `  "@effect/platform-node": ${manifest.dependencies["@effect/platform-node"]}`,
+      `  "@effect/platform-node-shared": ${manifest.dependencies["@effect/platform-node"]}`,
+      "allowBuilds:",
+      "  esbuild: false",
+      "",
+    ].join("\n"),
+  );
+});
+
+if (import.meta.main) {
+  const [destination, version] = Bun.argv.slice(2);
+  const manifest = consumerManifest(version ?? "");
+  if (!destination || Result.isFailure(manifest)) {
+    Console.error(
+      "Usage: bun scripts/consumerFixture.ts <new-directory> <build-version>",
+      Result.isFailure(manifest) ? manifest.failure : undefined,
+    ).pipe(Effect.runSync);
+    process.exitCode = 1;
+  } else {
+    writeConsumer(destination, manifest.success).pipe(
+      Effect.provide(BunServices.layer),
+      BunRuntime.runMain,
+    );
+  }
+}
