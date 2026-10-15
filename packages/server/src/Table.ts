@@ -124,7 +124,7 @@ export const systemTables = {
   _storage: storageTable,
 } as const;
 
-export const systemTablesForScope = <const Scope_ extends IdScope.IdScope>(
+const makeSystemTables = <const Scope_ extends IdScope.IdScope>(
   scope: Scope_,
 ) => ({
   _scheduled_functions: Table_.make(() => scheduledFunctionsTable.Fields)(
@@ -133,6 +133,24 @@ export const systemTablesForScope = <const Scope_ extends IdScope.IdScope>(
   ),
   _storage: Table_.make(() => storageTable.Fields)("_storage", scope),
 });
+
+const systemTablesByScope = new Map<
+  IdScope.IdScope,
+  Record<keyof typeof systemTables, Table_.AnyWithProps>
+>();
+
+export const systemTablesForScope = <const Scope_ extends IdScope.IdScope>(
+  scope: Scope_,
+): ReturnType<typeof makeSystemTables<Scope_>> => {
+  const cached = systemTablesByScope.get(scope);
+  if (cached !== undefined) {
+    // Each cache key is the scope used to construct both tables.
+    return cached as ReturnType<typeof makeSystemTables<Scope_>>;
+  }
+  const tables = makeSystemTables(scope);
+  systemTablesByScope.set(scope, tables);
+  return tables;
+};
 
 export type SystemTables<Scope_ extends IdScope.IdScope = IdScope.App> =
   ReturnType<typeof systemTablesForScope<Scope_>>[keyof typeof systemTables];
