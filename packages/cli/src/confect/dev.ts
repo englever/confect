@@ -17,6 +17,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as RestoreWatcher from "../RestoreWatcher";
 import * as String from "effect/String";
 import {
   externalPlugin,
@@ -50,7 +51,11 @@ import {
 import { ProjectRoot } from "../ProjectRoot";
 import { discoverTableFiles, TABLES_DIRNAME } from "../TableModule";
 import { generateAuthConfig, generateCrons, generateHttp } from "../utils";
-import { codegenHandler, loadPreviousFunctionPaths } from "./codegen";
+import {
+  codegenHandler,
+  makeCodegenHandler,
+  loadPreviousFunctionPaths,
+} from "./codegen";
 import { isDeclared } from "./declaration";
 import * as DirectoryOptions from "../DirectoryOptions";
 
@@ -199,6 +204,11 @@ export const dev = Command.make("dev", DirectoryOptions.flags, () =>
     const watcherWarningsRef =
       yield* Ref.make<WatcherMessages>(emptyWatcherMessages);
 
+    const structureWatcher = yield* confectStructureWatcher(
+      signal,
+      pendingRef,
+      restartQueue,
+    );
     yield* Effect.all(
       [
         Effect.scoped(
@@ -211,7 +221,7 @@ export const dev = Command.make("dev", DirectoryOptions.flags, () =>
             watcherWarningsRef,
           ),
         ),
-        confectStructureWatcher(signal, pendingRef, restartQueue),
+        structureWatcher.failure,
         convexConfigStructureWatcher(signal, pendingRef, restartQueue),
         syncLoop(
           signal,
@@ -219,11 +229,12 @@ export const dev = Command.make("dev", DirectoryOptions.flags, () =>
           initialFunctionPaths,
           watcherErrorsRef,
           watcherWarningsRef,
+          structureWatcher.duringRestore,
         ),
       ],
       { concurrency: "unbounded" },
     );
-  }),
+  }).pipe(Effect.scoped),
 ).pipe(
   Command.withDescription("Start the Confect development server"),
   Command.provide(DirectoryOptions.layer),
@@ -321,6 +332,7 @@ const syncLoop = Effect.fnUntraced(function* (
   initialFunctionPaths: FunctionPaths.FunctionPaths,
   watcherErrorsRef: Ref.Ref<WatcherMessages>,
   watcherWarningsRef: Ref.Ref<WatcherMessages>,
+  duringRestore: Effect.Effect<void, never, Scope.Scope>,
 ) {
   const functionPathsRef = yield* Ref.make(initialFunctionPaths);
   const lastLoggedErrorsRef = yield* Ref.make<string>("");
@@ -374,7 +386,7 @@ const syncLoop = Effect.fnUntraced(function* (
             Match.exhaustive,
           ))
       ) {
-        const current = yield* codegenHandler.pipe(
+        const current = yield* makeCodegenHandler(duringRestore).pipe(
           Effect.tap(({ functionPaths: nextFunctionPaths }) =>
             Effect.gen(function* () {
               const previous = yield* Ref.get(functionPathsRef);
@@ -716,24 +728,20 @@ const confectStructureWatcher = Effect.fnUntraced(function* (
   pendingRef: Ref.Ref<Pending>,
   restartQueue: Queue.Queue<void>,
 ) {
-  const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const confectDirectory = yield* ConfectDirectory.get;
 
-  yield* pipe(
-    fs.watch(confectDirectory, { recursive: true }),
-    Stream.runForEach((event) =>
-      handleConfectChange({
-        relativePath: path.relative(
-          confectDirectory,
-          path.resolve(confectDirectory, event.path),
-        ),
-        eventTag: event._tag,
-        signal,
-        pendingRef,
-        restartQueue,
-      }),
-    ),
+  return yield* RestoreWatcher.make(confectDirectory, (event) =>
+    handleConfectChange({
+      relativePath: path.relative(
+        confectDirectory,
+        path.resolve(confectDirectory, event.path),
+      ),
+      eventTag: event._tag,
+      signal,
+      pendingRef,
+      restartQueue,
+    }),
   );
 });
 
