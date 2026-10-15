@@ -92,7 +92,7 @@ const loopback = (port: number) => `http://127.0.0.1:${port}`;
 const listen = (port: number) =>
   Effect.callback<Server | undefined>((resume) => {
     const server = createServer();
-    server.once("error", () => resume(Effect.succeed(undefined)));
+    server.once("error", () => resume(Effect.undefined));
     server.listen(port, "127.0.0.1", () => resume(Effect.succeed(server)));
   });
 
@@ -208,7 +208,7 @@ export const boot = Effect.fn("LocalBackend.boot")(function* (
   const answer = (url: string) =>
     http.get(`${url}/instance_name`).pipe(
       Effect.flatMap((response) =>
-        response.status === 200 ? response.text : Effect.succeed(undefined),
+        response.status === 200 ? response.text : Effect.undefined,
       ),
       Effect.orElseSucceed(() => undefined),
     );

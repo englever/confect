@@ -3,13 +3,14 @@ import { v } from "convex/values";
 
 export const add = mutationGeneric({
   args: { text: v.string() },
-  handler: async (ctx, { text }) => {
-    await ctx.db.insert("notes", { text });
-  },
+  handler: (ctx, { text }) => ctx.db.insert("notes", { text }).then(() => null),
 });
 
 export const list = queryGeneric({
   args: {},
-  handler: async (ctx) =>
-    (await ctx.db.query("notes").collect()).map((note) => note.text),
+  handler: (ctx) =>
+    ctx.db
+      .query("notes")
+      .collect()
+      .then((notes) => notes.map((note) => note.text)),
 });

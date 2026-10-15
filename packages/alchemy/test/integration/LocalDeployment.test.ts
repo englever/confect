@@ -90,8 +90,7 @@ const makeSession = (paths: {
       ),
       Effect.provide(state),
       provideFreshArtifactStore,
-      Effect.provide(fake.layer),
-      Effect.provide(context),
+      Effect.provide(fake.layer.pipe(Layer.provideMerge(context))),
       Effect.scoped,
     );
   return { fake, session };

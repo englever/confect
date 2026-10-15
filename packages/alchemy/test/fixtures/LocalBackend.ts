@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/http/HttpClient";
@@ -32,67 +32,72 @@ export const fakeBackend = (options?: { readonly exitCode?: number }) => {
   const downloads: string[] = [];
   const answers = new Map<string, string>();
   let keys = 0;
-  const spawner = Layer.succeed(
+  const spawner = Layer.effect(
     ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make((command) =>
-      Effect.gen(function* () {
-        if (command._tag !== "StandardCommand")
-          return yield* Effect.die("unexpected piped command");
-        const args = command.args;
-        const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
-        let stdout = Stream.empty as Stream.Stream<Uint8Array>;
-        if (command.command === process.execPath) {
-          if (args[1] === "deploy")
-            pushes.push(
-              readFileSync(args[args.indexOf("--env-file") + 1], "utf8"),
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (command._tag !== "StandardCommand")
+            return yield* Effect.die("unexpected piped command");
+          const args = command.args;
+          const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
+          let stdout = Stream.empty as Stream.Stream<Uint8Array>;
+          if (command.command === process.execPath) {
+            if (args[1] === "deploy")
+              pushes.push(
+                yield* fs
+                  .readFileString(args[args.indexOf("--env-file") + 1])
+                  .pipe(Effect.orDie),
+              );
+            yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+          } else if (args[0] === "keygen") {
+            keys++;
+            const name = args[args.indexOf("--instance-name") + 1];
+            stdout = Stream.make(
+              new TextEncoder().encode(`${name}|0a1b2c${keys}\n`),
             );
-          yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
-        } else if (args[0] === "keygen") {
-          keys++;
-          const name = args[args.indexOf("--instance-name") + 1];
-          stdout = Stream.make(
-            new TextEncoder().encode(`${name}|0a1b2c${keys}\n`),
-          );
-          yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
-        } else if (options?.exitCode !== undefined) {
-          yield* Deferred.succeed(
-            exited,
-            ChildProcessSpawner.ExitCode(options.exitCode),
-          );
-        } else {
-          const origin = args[args.indexOf("--convex-origin") + 1];
-          answers.set(origin, args[args.indexOf("--instance-name") + 1]);
-          let running = true;
-          served.push({ args, running: () => running });
-          yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              running = false;
-              answers.delete(origin);
-            }).pipe(
-              Effect.andThen(
-                Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)),
+            yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+          } else if (options?.exitCode !== undefined) {
+            yield* Deferred.succeed(
+              exited,
+              ChildProcessSpawner.ExitCode(options.exitCode),
+            );
+          } else {
+            const origin = args[args.indexOf("--convex-origin") + 1];
+            answers.set(origin, args[args.indexOf("--instance-name") + 1]);
+            let running = true;
+            served.push({ args, running: () => running });
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => {
+                running = false;
+                answers.delete(origin);
+              }).pipe(
+                Effect.andThen(
+                  Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)),
+                ),
               ),
-            ),
-          );
-        }
-        return ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(1000 + served.length),
-          exitCode: Deferred.await(exited),
-          isRunning: Effect.map(Deferred.isDone(exited), (done) => !done),
-          kill: () =>
-            Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)).pipe(
-              Effect.asVoid,
-            ),
-          stdin: undefined as never,
-          stdout,
-          stderr: Stream.empty,
-          all: stdout,
-          getInputFd: () => undefined as never,
-          getOutputFd: () => Stream.empty,
-          unref: Effect.succeed(Effect.void),
-        });
-      }),
-    ),
+            );
+          }
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1000 + served.length),
+            exitCode: Deferred.await(exited),
+            isRunning: Effect.map(Deferred.isDone(exited), (done) => !done),
+            kill: () =>
+              Deferred.succeed(exited, ChildProcessSpawner.ExitCode(143)).pipe(
+                Effect.asVoid,
+              ),
+            stdin: undefined as never,
+            stdout,
+            stderr: Stream.empty,
+            all: stdout,
+            getInputFd: () => undefined as never,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void),
+          });
+        }),
+      );
+    }),
   );
   const http = Layer.succeed(
     HttpClient.HttpClient,

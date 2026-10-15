@@ -310,7 +310,7 @@ it.effect(
       yield* fs.makeDirectory(directory, { recursive: true });
       yield* fs.writeFileString(
         path.join(directory, "identity.json"),
-        Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           name: deploymentName,
           version: "precompiled-2026-10-06-a3538c6",
           instanceSecret: "00ff",

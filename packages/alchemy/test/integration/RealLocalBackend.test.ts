@@ -16,6 +16,7 @@ import { inMemoryState } from "alchemy/State/InMemoryState";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -23,6 +24,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import type * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import { tmpdir } from "node:os";
 import { deploy } from "../../src/internal/CodeDeployment";
 import {
@@ -117,7 +119,7 @@ describe.skipIf(process.platform === "win32")("real local backend", () => {
         );
         const config = ConfigProvider.layer(
           ConfigProvider.fromUnknown({
-            PATH: process.env.PATH ?? "",
+            PATH: yield* Config.String("PATH"),
             HOME: cache,
             LOCALAPPDATA: cache,
             TMPDIR: temp,
@@ -221,11 +223,10 @@ describe.skipIf(process.platform === "win32")("real local backend", () => {
         );
         expect(a && b && a[1] <= b[0]).toBe(true);
         expect(
-          yield* Effect.promise(() =>
-            fetch(`${first.url}/instance_name`).then(
-              () => "answered",
-              () => "stopped",
-            ),
+          yield* HttpClient.get(`${first.url}/instance_name`).pipe(
+            Effect.as("answered"),
+            Effect.orElseSucceed(() => "stopped"),
+            Effect.provide(FetchHttpClient.layer),
           ),
         ).toBe("stopped");
 

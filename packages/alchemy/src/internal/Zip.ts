@@ -1,8 +1,7 @@
-import { createReadStream, createWriteStream } from "node:fs";
-import { open, rm } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
-import { createInflateRaw } from "node:zlib";
+import { inflateRaw } from "node:zlib";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 export class ZipError extends Schema.TaggedError<ZipError>()("ZipError", {
@@ -11,114 +10,99 @@ export class ZipError extends Schema.TaggedError<ZipError>()("ZipError", {
 
 interface Entry {
   readonly method: number;
-  readonly compressedSize: number;
-  readonly headerOffset: number;
+  readonly start: number;
+  readonly end: number;
 }
 
-const formatError = () => new ZipError({ reason: "format" });
+const format = () => Result.fail(new ZipError({ reason: "format" }));
 
-const findEntry = async (
-  archive: string,
+/**
+ * Locate one entry's compressed bytes through the archive's central directory.
+ * No Zip64: a single-file release far under 4 GiB never needs it.
+ */
+const locate = (
+  archive: Uint8Array,
   name: string,
-): Promise<Entry | ZipError> => {
-  const file = await open(archive, "r");
-  try {
-    const { size } = await file.stat();
-    const tailSize = Math.min(size, 0xffff + 22);
-    const tail = Buffer.alloc(tailSize);
-    await file.read(tail, 0, tailSize, size - tailSize);
-    const end = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
-    if (end < 0 || end + 22 > tailSize) return formatError();
-    const directorySize = tail.readUInt32LE(end + 12);
-    const directoryOffset = tail.readUInt32LE(end + 16);
-    if (directoryOffset + directorySize > size) return formatError();
-    const directory = Buffer.alloc(directorySize);
-    await file.read(directory, 0, directorySize, directoryOffset);
-    let offset = 0;
-    while (offset + 46 <= directorySize) {
-      if (directory.readUInt32LE(offset) !== 0x02014b50) return formatError();
-      const nameLength = directory.readUInt16LE(offset + 28);
-      const entryName = directory.toString(
-        "utf8",
-        offset + 46,
-        offset + 46 + nameLength,
-      );
-      if (entryName === name) {
-        const compressedSize = directory.readUInt32LE(offset + 20);
-        const headerOffset = directory.readUInt32LE(offset + 42);
-        if (compressedSize === 0xffffffff || headerOffset === 0xffffffff)
-          return formatError();
-        return {
-          method: directory.readUInt16LE(offset + 10),
-          compressedSize,
-          headerOffset,
-        };
-      }
-      offset +=
-        46 +
-        nameLength +
-        directory.readUInt16LE(offset + 30) +
-        directory.readUInt16LE(offset + 32);
+): Result.Result<Entry, ZipError> => {
+  const bytes = Buffer.from(archive.buffer, archive.byteOffset, archive.length);
+  const end = bytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (end < 0 || end + 22 > bytes.length) return format();
+  const directoryEnd =
+    bytes.readUInt32LE(end + 16) + bytes.readUInt32LE(end + 12);
+  if (directoryEnd > bytes.length) return format();
+  for (
+    let offset = bytes.readUInt32LE(end + 16);
+    offset + 46 <= directoryEnd;
+  ) {
+    if (bytes.readUInt32LE(offset) !== 0x02014b50) return format();
+    const nameLength = bytes.readUInt16LE(offset + 28);
+    const entryName = bytes.toString(
+      "utf8",
+      offset + 46,
+      offset + 46 + nameLength,
+    );
+    if (entryName === name) {
+      const size = bytes.readUInt32LE(offset + 20);
+      const header = bytes.readUInt32LE(offset + 42);
+      if (
+        header + 30 > bytes.length ||
+        bytes.readUInt32LE(header) !== 0x04034b50
+      )
+        return format();
+      const start =
+        header +
+        30 +
+        bytes.readUInt16LE(header + 26) +
+        bytes.readUInt16LE(header + 28);
+      if (start + size > bytes.length) return format();
+      return Result.succeed({
+        method: bytes.readUInt16LE(offset + 10),
+        start,
+        end: start + size,
+      });
     }
-    return new ZipError({ reason: "entry" });
-  } finally {
-    await file.close();
+    offset +=
+      46 +
+      nameLength +
+      bytes.readUInt16LE(offset + 30) +
+      bytes.readUInt16LE(offset + 32);
   }
+  return Result.fail(new ZipError({ reason: "entry" }));
 };
 
-const dataOffset = async (archive: string, entry: Entry) => {
-  const file = await open(archive, "r");
-  try {
-    const header = Buffer.alloc(30);
-    await file.read(header, 0, 30, entry.headerOffset);
-    if (header.readUInt32LE(0) !== 0x04034b50) return undefined;
-    return (
-      entry.headerOffset +
-      30 +
-      header.readUInt16LE(26) +
-      header.readUInt16LE(28)
+const inflate = (data: Uint8Array) =>
+  Effect.callback<Uint8Array, ZipError>((resume) => {
+    inflateRaw(data, (error, output) =>
+      resume(
+        error
+          ? Effect.fail(new ZipError({ reason: "format" }))
+          : Effect.succeed(output),
+      ),
     );
-  } finally {
-    await file.close();
-  }
-};
+  });
 
 /**
  * Extract one entry of a zip archive. Convex publishes the local backend as a
- * single-file zip; this reads its central directory and inflates that entry,
- * without Zip64 support, which a release far under 4 GiB never needs.
+ * single-file zip, stored or deflated.
  */
 export const extract = Effect.fn("Zip.extract")(function* (
   archive: string,
   name: string,
   destination: string,
 ) {
-  const entry = yield* Effect.tryPromise({
-    try: () => findEntry(archive, name),
-    catch: formatError,
-  });
-  if (Schema.is(ZipError)(entry)) return yield* entry;
-  if (entry.method !== 0 && entry.method !== 8) return yield* formatError();
-  const start = yield* Effect.tryPromise({
-    try: () => dataOffset(archive, entry),
-    catch: formatError,
-  });
-  if (start === undefined) return yield* formatError();
-  yield* Effect.tryPromise({
-    try: () => {
-      const source = createReadStream(archive, {
-        start,
-        end: start + entry.compressedSize - 1,
-      });
-      const target = createWriteStream(destination, { mode: 0o755 });
-      return entry.method === 8
-        ? pipeline(source, createInflateRaw(), target)
-        : pipeline(source, target);
-    },
-    catch: () => new ZipError({ reason: "io" }),
-  }).pipe(
-    Effect.tapError(() =>
-      Effect.promise(() => rm(destination, { force: true })),
-    ),
-  );
+  const fs = yield* FileSystem.FileSystem;
+  const bytes = yield* fs
+    .readFile(archive)
+    .pipe(Effect.mapError(() => new ZipError({ reason: "io" })));
+  const entry = yield* Effect.fromResult(locate(bytes, name));
+  const data = bytes.subarray(entry.start, entry.end);
+  const content =
+    entry.method === 8
+      ? yield* inflate(data)
+      : entry.method === 0
+        ? data
+        : yield* new ZipError({ reason: "format" });
+  yield* fs
+    .writeFile(destination, content, { mode: 0o755 })
+    .pipe(Effect.mapError(() => new ZipError({ reason: "io" })));
 });
