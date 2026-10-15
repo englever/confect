@@ -1,0 +1,86 @@
+name: Publish fork builds
+
+on:
+  push:
+    branches:
+      - englever/main
+  pull_request:
+    branches:
+      - englever/main
+  workflow_dispatch:
+    inputs:
+      n:
+        description: Unused build number above all existing builds. Leave empty for the next number.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Rename and pack
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/confect-setup
+      - run: bun test ./scripts
+      - run: pnpm check:pack-contents
+      - name: Stage fork packages
+        run: bun scripts/renameForGithubPackages.ts "$RUNNER_TEMP/confect-packages" "" --dry-run
+      - name: Upload staged packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: confect-github-packages-dry-run
+          path: |
+            ${{ runner.temp }}/confect-packages/tarballs/*.tgz
+            ${{ runner.temp }}/confect-packages/plan.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GitHub Packages
+    if: github.repository == 'englever/confect' && github.ref == 'refs/heads/englever/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: englever-github-packages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/confect-setup
+      - run: bun test ./scripts
+      - run: pnpm check:pack-contents
+      - name: Configure GitHub Packages authentication
+        run: |
+          printf '%s\n' \
+            '@englever:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$HOME/.npmrc"
+      - name: Choose version and stage fork packages
+        id: stage
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_NUMBER: ${{ inputs.n }}
+        run: bun scripts/renameForGithubPackages.ts "$RUNNER_TEMP/confect-packages" "$BUILD_NUMBER"
+      - name: Publish staged tarballs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for tarball in "$RUNNER_TEMP/confect-packages/tarballs/"*.tgz; do
+            pnpm publish "$tarball" --no-git-checks --tag englever --registry https://npm.pkg.github.com
+          done
+      - name: Upload published build
+        if: always() && steps.stage.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: confect-github-packages-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/confect-packages/tarballs/*.tgz
+            ${{ runner.temp }}/confect-packages/plan.json
+          if-no-files-found: error
