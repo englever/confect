@@ -1,0 +1,11 @@
+import { v } from "convex/values";
+import { defineApp } from "convex/server";
+import counter from "../components/counter/convex/convex.config";
+import parent from "../components/parent/convex/convex.config";
+
+const app = defineApp({ env: { COMPONENT_MARKER: v.optional(v.string()), COMPONENT_HOST_ONLY: v.optional(v.string()) } });
+app.use(counter, { name: "first", httpPrefix: "/first", env: { COMPONENT_REQUIRED: "first-required", COMPONENT_OPTIONAL: "first-optional", COMPONENT_MARKER: app.env.COMPONENT_MARKER } });
+app.use(counter, { name: "second", httpPrefix: "/second", env: { COMPONENT_REQUIRED: "second-required", COMPONENT_OPTIONAL: app.env.COMPONENT_MARKER, COMPONENT_MARKER: app.env.COMPONENT_MARKER } });
+app.use(parent, { name: "left", httpPrefix: "/left" });
+app.use(parent, { name: "right", httpPrefix: "/right" });
+export default app;

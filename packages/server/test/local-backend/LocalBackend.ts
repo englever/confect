@@ -23,6 +23,11 @@ class BackendVersionLookupError extends Schema.TaggedError<BackendVersionLookupE
   { message: Schema.String },
 ) {}
 
+class BackendEnvironmentSetupError extends Schema.TaggedError<BackendEnvironmentSetupError>()(
+  "BackendEnvironmentSetupError",
+  { name: Schema.String, exitCode: Schema.Finite },
+) {}
+
 export class LocalBackend extends Context.Service<
   LocalBackend,
   { readonly client: ConvexHttpClient }
@@ -71,6 +76,12 @@ const make = Effect.gen(function* () {
       "--typecheck=disable",
       "--codegen=disable",
       "--tail-logs=disable",
+      "--local-cloud-port",
+      "3210",
+      "--local-site-port",
+      "3211",
+      "--local-backend-version",
+      "precompiled-2026-10-06-a3538c6",
     ],
     {
       cwd: fixturesDir,
@@ -110,6 +121,24 @@ const make = Effect.gen(function* () {
       );
 
       if (readySeen) {
+        for (const [name, value] of [
+          ["COMPONENT_MARKER", "from-app"],
+          ["COMPONENT_HOST_ONLY", "host-only"],
+        ] as const) {
+          const code = yield* spawner.exitCode(
+            ChildProcess.make("pnpm", ["convex", "env", "set", name, value], {
+              cwd: fixturesDir,
+              shell: true,
+              extendEnv: true,
+              env: { CONVEX_AGENT_MODE: "anonymous" },
+            }),
+          );
+          if (code !== 0)
+            return yield* new BackendEnvironmentSetupError({
+              name,
+              exitCode: code,
+            });
+        }
         return { client: new ConvexHttpClient(URL) };
       }
 
