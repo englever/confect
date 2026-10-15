@@ -228,7 +228,7 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
   );
 
   it.effect(
-    "reads declared environment bindings through Config separately for each mount",
+    "reads each mount's bound env and the host's own env through the declared Config entries",
     () =>
       Effect.gen(function* () {
         const { client } = yield* LocalBackend.LocalBackend;
@@ -252,6 +252,7 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
             unbound: "unset",
             hostOnly: "unset",
           },
+          host: { marker: "from-app", hostOnly: "host-only" },
         });
       }),
   );

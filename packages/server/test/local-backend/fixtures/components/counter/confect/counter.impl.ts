@@ -17,6 +17,7 @@ import {
   StorageWriter,
 } from "./_generated/services";
 import counter, { Rejected } from "./counter.spec";
+import env from "./env";
 
 const create = FunctionImpl.make(schema, counter, "create", (args) =>
   Effect.gen(function* () {
@@ -92,16 +93,12 @@ const page = FunctionImpl.make(
 );
 const environment = FunctionImpl.make(schema, counter, "environment", () =>
   Effect.gen(function* () {
-    const required = yield* Config.String("COMPONENT_REQUIRED");
-    const optional = yield* Config.String("COMPONENT_OPTIONAL").pipe(
-      Config.withDefault("unset"),
-    );
-    const marker = yield* Config.String("COMPONENT_MARKER").pipe(
-      Config.withDefault("unset"),
-    );
-    const unbound = yield* Config.String("COMPONENT_UNBOUND").pipe(
-      Config.withDefault("unset"),
-    );
+    const unset = Option.getOrElse(() => "unset");
+    const required = yield* env.COMPONENT_REQUIRED;
+    const optional = unset(yield* env.COMPONENT_OPTIONAL);
+    const marker = unset(yield* env.COMPONENT_MARKER);
+    const unbound = unset(yield* env.COMPONENT_UNBOUND);
+    // The host declares this name; the component does not, so it must read as unset.
     const hostOnly = yield* Config.String("COMPONENT_HOST_ONLY").pipe(
       Config.withDefault("unset"),
     );

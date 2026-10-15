@@ -1,33 +1,20 @@
-import { HttpRouter as ConfectHttpRouter } from "@confect/server";
+import { Http } from "@confect/core";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
-import * as HttpRouter from "effect/http/HttpRouter";
-import * as HttpServerRequest from "effect/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/http/HttpServerResponse";
-import schema from "./_generated/schema";
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { ActionCtx } from "./_generated/services";
+import { CounterApi } from "./api";
 
-export default ConfectHttpRouter.forSchema(schema)(
-  Layer.mergeAll(
-    HttpRouter.add(
-      "GET",
-      "/health",
+const handlers = HttpApiBuilder.group(CounterApi, "health", (handle) =>
+  handle
+    .handle("health", () =>
       Effect.map(ActionCtx, (ctx) =>
-        HttpServerResponse.text(
-          Predicate.hasProperty(ctx, "auth")
-            ? "unexpected-auth"
-            : "component-ready",
-        ),
+        Predicate.hasProperty(ctx, "auth")
+          ? "unexpected-auth"
+          : "component-ready",
       ),
-    ),
-    HttpRouter.add(
-      "POST",
-      "/echo",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        return HttpServerResponse.text(yield* request.text);
-      }),
-    ),
-  ),
+    )
+    .handle("echo", ({ payload }) => Effect.succeed(payload)),
 );
+
+export default Http.make({ api: CounterApi, handlers });
