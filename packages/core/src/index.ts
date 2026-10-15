@@ -10,6 +10,7 @@ export * as GroupPath from "./GroupPath";
 export * as GroupSpec from "./GroupSpec";
 export * as Identifier from "./Identifier";
 export * as Lazy from "./Lazy";
+export * as Manifest from "./Manifest";
 export * as MiddlewareAttachment from "./MiddlewareAttachment";
 export * as MiddlewareSpec from "./MiddlewareSpec";
 export * as PaginationError from "./PaginationError";
