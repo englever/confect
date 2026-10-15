@@ -12,6 +12,49 @@ layer(NodeServices.layer, { excludeTestServices: true })(
   "built confect dev",
   (it) => {
     it.effect(
+      "reports a component Node group and recovers when the group is removed",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const project = yield* Project.makeNodeComponent;
+          const nodeSpec = yield* fs.readFileString(
+            `${project.root}/confect/tasks.spec.ts`,
+          );
+          yield* project.write(
+            "confect/tasks.spec.ts",
+            `import { scope } from "./_generated/id";\nexport const componentScope = scope;\n${nodeSpec}`,
+          );
+          const watching = yield* project.start("dev", [
+            "--component-dir",
+            "convex",
+          ]);
+          const message =
+            'Group "tasks" in tasks.spec.ts uses the Node runtime. Convex components do not support Node.js functions.';
+          yield* watching.waitFor(message);
+          yield* watching.waitFor(message);
+          expect(yield* Ref.get(watching.output)).not.toContain(success);
+          expect(yield* fs.exists(`${project.root}/confect/_generated`)).toBe(
+            false,
+          );
+          const settled = yield* Ref.get(watching.output);
+          yield* Effect.sleep("2 seconds");
+          expect(yield* Ref.get(watching.output)).toBe(settled);
+          yield* fs.remove(`${project.root}/confect/tasks.spec.ts`);
+          yield* fs.remove(`${project.root}/confect/tasks.impl.ts`);
+          yield* watching.waitFor(success);
+          expect(
+            yield* fs.readFileString(
+              `${project.root}/confect/_generated/component.ts`,
+            ),
+          ).toContain("Component.make(spec, scope,");
+          expect(yield* fs.exists(`${project.root}/convex/tasks.ts`)).toBe(
+            false,
+          );
+        }).pipe(Effect.scoped),
+      { timeout: 30000 },
+    );
+
+    it.effect(
       "bootstraps table-dependent specs and impls without generated output",
       () =>
         Effect.gen(function* () {

@@ -123,9 +123,10 @@ export const codegen = Command.make("codegen", DirectoryOptions.flags, () =>
 export const codegenHandler = Effect.gen(function* () {
   const tracker = yield* Ref.make(false);
 
-  const functionPaths = yield* runCodegen.pipe(
-    Effect.provideService(WriteTracker, tracker),
-  );
+  const target = yield* ConvexDirectory.target;
+  const functionPaths = yield* (
+    target.kind === "component" ? runComponentCodegen : runCodegen
+  ).pipe(Effect.provideService(WriteTracker, tracker));
 
   const anyWritesHappened = yield* Ref.get(tracker);
   return { functionPaths, anyWritesHappened };
@@ -208,6 +209,50 @@ const runCodegen = Effect.gen(function* () {
   return functionPaths;
 });
 
+// Specs can import bootstrap output, so preserve it until their runtimes are known.
+const runComponentCodegen = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const confectDirectory = yield* ConfectDirectory.get;
+  const convexDirectory = yield* ConvexDirectory.get;
+  const backupDirectory = yield* fs.makeTempDirectoryScoped();
+  const configPath = path.join(
+    convexDirectory,
+    ConvexConfig.CONVEX_CONFIG_FILENAME,
+  );
+  const snapshots = yield* Effect.forEach(
+    [path.join(confectDirectory, GENERATED_DIRNAME), configPath],
+    Effect.fnUntraced(function* (original, index) {
+      const backup = path.join(backupDirectory, String(index));
+      const existed = yield* fs.exists(original);
+      if (existed) yield* fs.copy(original, backup);
+      return { original, backup, existed };
+    }),
+  );
+  return yield* runCodegen.pipe(
+    Effect.tapErrorTag("ComponentNodeGroupError", () =>
+      Effect.forEach(snapshots, ({ original, backup, existed }) =>
+        Effect.gen(function* () {
+          if (
+            existed &&
+            original === configPath &&
+            (yield* fs.exists(original)) &&
+            (yield* fs.readFileString(original)) ===
+              (yield* fs.readFileString(backup))
+          ) {
+            return;
+          }
+          if (yield* fs.exists(original)) {
+            yield* fs.remove(original, { recursive: true });
+          }
+          if (existed) yield* fs.copy(backup, original);
+          else yield* logFileRemoved(original);
+        }),
+      ),
+    ),
+  );
+}).pipe(Effect.scoped);
+
 const validateComponentConfiguration = Effect.gen(function* () {
   return yield* Match.value((yield* ConvexDirectory.target).kind).pipe(
     Match.when("app", () => Effect.void),
@@ -265,17 +310,47 @@ const generateConfectGeneratedDirectory = Effect.gen(function* () {
   }
 });
 
+const validateComponentGroupRuntime = (
+  group: GroupSpec.AnyWithProps,
+  groupPath: string,
+  specPath: string,
+): Result.Result<void, CodegenError.ComponentNodeGroupError> =>
+  Result.gen(function* () {
+    if (group.runtime === "Node") {
+      return yield* Result.fail(
+        new CodegenError.ComponentNodeGroupError({ specPath, groupPath }),
+      );
+    }
+    for (const [name, child] of Object.entries(group.groups)) {
+      yield* validateComponentGroupRuntime(
+        child,
+        `${groupPath}.${name}`,
+        specPath,
+      );
+    }
+  });
+
 const loadAndValidateLeafModules = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const confectDirectory = yield* ConfectDirectory.get;
   const specFiles = yield* discoverLeafSpecFiles;
+  const target = yield* ConvexDirectory.target;
 
   const results = yield* Effect.forEach(
     specFiles,
     Effect.fnUntraced(function* (specRelativePath: string) {
       const discovered = yield* toLeafModule(specRelativePath);
       const groupSpec = yield* validateSpec(discovered);
+      if (target.kind === "component") {
+        yield* Effect.fromResult(
+          validateComponentGroupRuntime(
+            groupSpec,
+            discovered.groupPathDot,
+            specRelativePath,
+          ),
+        );
+      }
       // Fill in the runtime now that the spec is bundled; discovery left it `None`.
       const leaf = {
         ...discovered,

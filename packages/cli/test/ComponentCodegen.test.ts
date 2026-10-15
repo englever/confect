@@ -8,6 +8,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { codegenHandler } from "@confect/cli/confect/codegen";
 import * as DirectoryOptions from "@confect/cli/DirectoryOptions";
+import * as Project from "./integration/Project";
 
 const fixture = `${import.meta.dirname}/fixtures/authored-component`;
 const stringLiteral = Schema.encodeSync(Schema.fromJsonString(Schema.String));
@@ -211,4 +212,119 @@ export default component;
         yield* fs.exists(`${directory}/confect/_generated/manifest.ts`),
       ).toBe(false);
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "rejects nested Node groups even when their spec imports bootstrap output",
+  () =>
+    Effect.gen(function* () {
+      const project = yield* Project.makeNodeComponent;
+      const fs = yield* FileSystem.FileSystem;
+      yield* project.write(
+        "confect/tasks.spec.ts",
+        `import { GroupSpec } from "@confect/core";
+import { scope } from "./_generated/id";
+export const componentScope = scope;
+export default GroupSpec.make().addGroup(GroupSpec.makeNodeAt("worker"));
+`,
+      );
+      const result = yield* Effect.result(
+        codegenHandler.pipe(
+          Effect.provide(
+            DirectoryOptions.layer({
+              componentDir: Option.some(`${project.root}/convex`),
+            }),
+          ),
+        ),
+      );
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({
+        _tag: "ComponentNodeGroupError",
+        specPath: "tasks.spec.ts",
+        groupPath: "tasks.worker",
+      });
+      expect(yield* fs.exists(`${project.root}/confect/_generated`)).toBe(
+        false,
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each(["configured", "declared"] as const)(
+  "preserves existing output when a %s component gains a Node group",
+  (configuration) =>
+    Effect.gen(function* () {
+      const project = yield* Project.makeNodeComponent;
+      const fs = yield* FileSystem.FileSystem;
+      const nodeSpec = yield* fs.readFileString(
+        `${project.root}/confect/tasks.spec.ts`,
+      );
+      if (configuration === "declared") {
+        yield* fs.remove(`${project.root}/convex/convex.config.ts`);
+        yield* project.write(
+          "confect/env.ts",
+          'import { Env } from "@confect/core";\nexport default Env.make("nodeComponent", {});\n',
+        );
+        yield* project.write(
+          "confect/app.ts",
+          'import { App } from "@confect/core";\nimport env from "./env";\nexport default App.make({ env });\n',
+        );
+      }
+      yield* project.write(
+        "confect/tasks.spec.ts",
+        nodeSpec
+          .replace("makeNode()", "make()")
+          .replace("publicNodeAction", "publicAction"),
+      );
+      const run = codegenHandler.pipe(
+        Effect.provide(
+          DirectoryOptions.layer({
+            componentDir: Option.some(`${project.root}/convex`),
+          }),
+        ),
+      );
+      yield* run;
+      const configPath = `${project.root}/convex/convex.config.ts`;
+      const configBefore = yield* fs.readFileString(configPath);
+      const configModifiedAt = (yield* fs.stat(configPath)).mtime;
+      const generatedDirectory = `${project.root}/confect/_generated`;
+      const readGenerated = Effect.gen(function* () {
+        const files = (yield* fs.readDirectory(generatedDirectory, {
+          recursive: true,
+        }))
+          .filter((file) => file.endsWith(".ts"))
+          .sort();
+        return yield* Effect.forEach(files, (file) =>
+          fs
+            .readFileString(`${generatedDirectory}/${file}`)
+            .pipe(Effect.map((contents) => [file, contents])),
+        );
+      });
+      const before = yield* readGenerated;
+      yield* fs.makeDirectory(`${project.root}/confect/tables`);
+      yield* project.write(
+        "confect/tables/notes.ts",
+        'import { Table } from "@confect/core";\nimport * as Schema from "effect/Schema";\nexport default Table.make(() => Schema.Struct({ text: Schema.String }));\n',
+      );
+      yield* project.write("confect/tasks.spec.ts", nodeSpec);
+      if (configuration === "declared") {
+        yield* project.write(
+          "confect/env.ts",
+          'import { Env } from "@confect/core";\nexport default Env.make("nodeComponent", { TOKEN: Env.string() });\n',
+        );
+      }
+      const result = yield* Effect.result(run);
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({
+        _tag: "ComponentNodeGroupError",
+        groupPath: "tasks",
+      });
+      expect(yield* readGenerated).toEqual(before);
+      expect(yield* fs.readFileString(configPath)).toBe(configBefore);
+      if (configuration === "configured") {
+        expect((yield* fs.stat(configPath)).mtime).toEqual(configModifiedAt);
+      }
+      expect(
+        yield* fs.exists(`${project.root}/confect/_generated/tables/notes.ts`),
+      ).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

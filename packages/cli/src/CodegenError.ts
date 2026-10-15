@@ -34,6 +34,14 @@ export class SpecMissingDefaultGroupSpecError extends Schema.TaggedError<SpecMis
   },
 ) {}
 
+export class ComponentNodeGroupError extends Schema.TaggedError<ComponentNodeGroupError>()(
+  "ComponentNodeGroupError",
+  {
+    specPath: Schema.String,
+    groupPath: Schema.String,
+  },
+) {}
+
 export class SpecImportsServerError extends Schema.TaggedError<SpecImportsServerError>()(
   "SpecImportsServerError",
   {
@@ -176,6 +184,7 @@ export const CodegenError = Schema.Union([
   MissingImplFileError,
   MissingSpecFileError,
   SpecMissingDefaultGroupSpecError,
+  ComponentNodeGroupError,
   SpecImportsServerError,
   InvalidMiddlewareAttachmentError,
   ImplMissingSpecImportError,
@@ -388,6 +397,12 @@ const renderParentChildNameCollisionError = (
  */
 export const renderCodegenError = (error: CodegenError): string => {
   if (isBuildError(error)) return renderBuildError(error);
+  // The renderer pipeline below is at Effect's pipe arity limit.
+  if (error._tag === "ComponentNodeGroupError") {
+    return singleLine(
+      `Group "${error.groupPath}" in ${error.specPath} uses the Node runtime. Convex components do not support Node.js functions.`,
+    );
+  }
   return Match.value(error).pipe(
     Match.tag("MissingImplFileError", renderMissingImplFileError),
     Match.tag("MissingSpecFileError", renderMissingSpecFileError),

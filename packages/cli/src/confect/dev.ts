@@ -302,6 +302,19 @@ const drainUntilQuiescent = Effect.fnUntraced(function* (
   yield* loop;
 });
 
+// Bootstrap writes and rollbacks can trigger late esbuild rebuilds after a sync.
+const drainCodegenEchoes = Effect.fnUntraced(function* (
+  signal: Queue.Queue<void>,
+  pendingRef: Ref.Ref<Pending>,
+  anyWritesHappened: boolean,
+) {
+  if (anyWritesHappened) {
+    yield* Effect.sleep(ECHO_COOLDOWN);
+  }
+  yield* drainUntilQuiescent(signal, COALESCE_QUIESCENCE, COALESCE_MAX_WAIT);
+  yield* Ref.set(pendingRef, pendingInit);
+});
+
 const syncLoop = Effect.fnUntraced(function* (
   signal: Queue.Queue<void>,
   pendingRef: Ref.Ref<Pending>,
@@ -369,25 +382,19 @@ const syncLoop = Effect.fnUntraced(function* (
               yield* Ref.set(functionPathsRef, nextFunctionPaths);
             }),
           ),
+          Effect.tapErrorTag("ComponentNodeGroupError", () =>
+            drainCodegenEchoes(signal, pendingRef, true),
+          ),
           CodegenError.catchAndLog,
         );
         if (Option.isNone(current)) {
           return;
         }
-        // Drain any stragglers from this cycle's burst (slow watchers
-        // whose onEnd fired after the first quiescence) plus, when
-        // codegen wrote, the echo signals esbuild emits in response
-        // to our writes. Reset `pendingRef` so those drained signals
-        // don't carry a dirty flag into the next cycle.
-        if (current.value.anyWritesHappened) {
-          yield* Effect.sleep(ECHO_COOLDOWN);
-        }
-        yield* drainUntilQuiescent(
+        yield* drainCodegenEchoes(
           signal,
-          COALESCE_QUIESCENCE,
-          COALESCE_MAX_WAIT,
+          pendingRef,
+          current.value.anyWritesHappened,
         );
-        yield* Ref.set(pendingRef, pendingInit);
       }
 
       const dirtyOptionalFiles = [

@@ -106,3 +106,16 @@ export const make = Effect.gen(function* () {
   });
   return { root, write, start };
 });
+
+export const makeNodeComponent = Effect.gen(function* () {
+  const project = yield* make;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  yield* fs.remove(path.join(project.root, "confect"), { recursive: true });
+  yield* fs.copy(
+    path.join(import.meta.dirname, "../fixtures/node-component"),
+    project.root,
+    { overwrite: true },
+  );
+  return project;
+});
