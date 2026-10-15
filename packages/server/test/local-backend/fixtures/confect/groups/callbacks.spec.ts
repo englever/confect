@@ -58,6 +58,12 @@ export default GroupSpec.make()
     }),
   )
   .addFunction(
+    FunctionSpec.publicMutation({
+      name: "createMismatched",
+      returns: () => Observation,
+    }),
+  )
+  .addFunction(
     FunctionSpec.publicQuery({
       name: "get",
       args: () => ({ id: DeliveryId() }),

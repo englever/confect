@@ -350,4 +350,20 @@ layer(Layer.mergeAll(LocalBackend.layer, NodeHttpClient.layerUndici), {
         expect(observed.outcome).toBe("defect");
       }),
   );
+
+  it.effect(
+    "refuses to create a handle for a host function whose validators differ from the contract",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* LocalBackend.LocalBackend;
+        expect(
+          yield* Effect.promise(() =>
+            client.mutation(api.groups.callbacks.createMismatched, {}),
+          ),
+        ).toEqual({
+          outcome: "failure",
+          message: `The host function does not satisfy callback contract "counter/onReported": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.`,
+        });
+      }),
+  );
 });

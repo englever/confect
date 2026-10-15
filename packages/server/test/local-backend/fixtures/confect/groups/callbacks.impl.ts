@@ -35,6 +35,46 @@ const retired = Ref.make(
   }),
 );
 
+// Record types hide the field names, so only the check in `Callback.create`
+// sees that the host's args name `state` where the contract sends `status`.
+const reportedFields: Record<string, typeof Schema.String> = {
+  status: Schema.String,
+};
+const misreportedFields: Record<string, typeof Schema.String> = {
+  state: Schema.String,
+};
+const OnReported = CoreCallback.mutation("counter/onReported", {
+  args: () => reportedFields,
+  returns: () => Schema.Null,
+});
+// Never deployed: the check refuses it before Convex is asked for a handle.
+const misreported = Ref.make(
+  "groups/callbacks",
+  FunctionSpec.internalMutation({
+    name: "misreported",
+    args: () => misreportedFields,
+    returns: () => Schema.Null,
+  }),
+);
+
+const observe = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.map(Effect.exit(effect), (exit) =>
+    Exit.match(exit, {
+      onSuccess: () => ({ outcome: "success" as const, message: "" }),
+      onFailure: (cause) => {
+        const error = Cause.squash(cause);
+        return {
+          outcome: Cause.hasDies(cause)
+            ? ("defect" as const)
+            : ("failure" as const),
+          message: Predicate.hasProperty(error, "message")
+            ? String(error.message)
+            : String(error),
+        };
+      },
+    }),
+  );
+
 const onEvent = FunctionImpl.make(
   databaseSchema,
   callbacks,
@@ -108,23 +148,14 @@ const createRetired = FunctionImpl.make(
   databaseSchema,
   callbacks,
   "createRetired",
-  () =>
-    Effect.map(Effect.exit(Callback.create(OnEvent, retired)), (exit) =>
-      Exit.match(exit, {
-        onSuccess: () => ({ outcome: "success" as const, message: "" }),
-        onFailure: (cause) => {
-          const error = Cause.squash(cause);
-          return {
-            outcome: Cause.hasDies(cause)
-              ? ("defect" as const)
-              : ("failure" as const),
-            message: Predicate.hasProperty(error, "message")
-              ? String(error.message)
-              : String(error),
-          };
-        },
-      }),
-    ),
+  () => observe(Callback.create(OnEvent, retired)),
+);
+
+const createMismatched = FunctionImpl.make(
+  databaseSchema,
+  callbacks,
+  "createMismatched",
+  () => observe(Callback.create(OnReported, misreported)),
 );
 
 const get = FunctionImpl.make(databaseSchema, callbacks, "get", (args) =>
@@ -158,6 +189,7 @@ export default GroupImpl.make(databaseSchema, callbacks).pipe(
     breach,
     sameHandle,
     createRetired,
+    createMismatched,
     get,
     events,
   ]),

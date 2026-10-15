@@ -636,3 +636,15 @@ it.effect(
       expect(yield* t.mutation(callbacks.sameHandle, { id })).toBe(true);
     }).pipe(Effect.provide(localHostLayer)),
 );
+
+it.effect(
+  "refuses to create a handle for a host function whose validators differ from the contract",
+  () =>
+    Effect.gen(function* () {
+      const t = yield* LocalHost;
+      expect(yield* t.mutation(callbacks.createMismatched, {})).toEqual({
+        outcome: "failure",
+        message: `The host function does not satisfy callback contract "counter/onReported": its args compile to {"kind":"object","fields":{"state":{"kind":"string"}}}, the contract's to {"kind":"object","fields":{"status":{"kind":"string"}}}.`,
+      });
+    }).pipe(Effect.provide(localHostLayer)),
+);

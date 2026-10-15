@@ -38,6 +38,12 @@ export declare const api: {
         { id: string },
         "success" | "failure" | "defect"
       >;
+      createMismatched: FunctionReference<
+        "mutation",
+        "public",
+        {},
+        { message: string; outcome: "success" | "failure" | "defect" }
+      >;
       createRetired: FunctionReference<
         "mutation",
         "public",
