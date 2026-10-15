@@ -148,7 +148,7 @@ Under `alchemy dev`, `Convex.providers()` resolves each `Convex` resource to a l
 
 Values your stack reads with `Config`, such as `CONVEX_TEAM_ID`, must still resolve in development. Give them a development default or set them in your shell.
 
-The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. If it exits or fails to start, the next reload starts it again. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, on the same ports and URL. The ports are kept once the backend has started on them, so a failed first start picks new ones. If another program has taken one of the kept ports, `alchemy dev` fails rather than moving the backend; free the port and run it again. Only one session can serve a data directory at a time.
+The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. If it exits or fails to start, the next reload starts it again. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, on the same ports and URL. Only one session can serve a data directory at a time.
 
 Removing the deployment from your stack keeps its data; `RemovalPolicy.destroy()` deletes it. If you lose your Alchemy state, the next `alchemy dev` creates a new deployment, and the old data directory stays until you delete it. Removing `Convex.EnvironmentVariables` while its backend is not running drops them from your Alchemy state but leaves them set in the kept data.
 
@@ -156,7 +156,7 @@ Code is pushed each time the stack applies. `alchemy dev` re-applies when a file
 
 Pushes to one deployment wait for each other, locally and in the cloud, so two resources, stacks, or checkouts never push to the same deployment at the same time. The locks live in your user cache directory (`~/.cache/confect/alchemy/locks`, or `%LOCALAPPDATA%\confect\alchemy\locks` on Windows), so they coordinate every process that shares it. Pushes from a different user, a different home directory, or a different machine, such as two CI jobs, are not coordinated. If the `alchemy` process is killed outright, for example with `kill -9`, a push it started can finish without holding the lock; let it finish before pushing again.
 
-By default the backend binds two free ports chosen by the operating system. To pick from a range instead, set `CONFECT_LOCAL_BACKEND_PORTS`:
+By default the backend binds two free ports chosen by the operating system. A deployment keeps its ports once the backend has started on them, so a failed first start picks new ones. If another program has taken one of the kept ports, `alchemy dev` fails rather than moving the backend; free the port and run it again. To pick ports from a range instead, set `CONFECT_LOCAL_BACKEND_PORTS`:
 
 ```sh
 CONFECT_LOCAL_BACKEND_PORTS=3300-3399 pnpm alchemy dev
