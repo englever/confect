@@ -212,7 +212,7 @@ const pnpmMissingLatest = {
 const registryVersions = (body: string, status = 200) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    return yield* readVersions("@englever/confect-server", ".").pipe(
+    return yield* readVersions("@englever/confect-server").pipe(
       Effect.provideService(
         ChildProcessSpawner.ChildProcessSpawner,
         ChildProcessSpawner.make(() =>
