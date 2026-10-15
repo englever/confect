@@ -1,4 +1,6 @@
+import { remove } from "@confect/cli/Remove";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
@@ -42,10 +44,17 @@ export default GroupImpl.make(databaseSchema, notes).pipe(GroupImpl.finalize);
 export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const root = yield* fs.makeTempDirectoryScoped({
-    directory: import.meta.dirname,
-    prefix: "consumer-",
-  });
+  const root = yield* Effect.acquireRelease(
+    fs.makeTempDirectory({
+      directory: import.meta.dirname,
+      prefix: "consumer-",
+    }),
+    (directory) =>
+      remove(directory).pipe(
+        Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
+        Effect.orDie,
+      ),
+  );
   const write = (file: string, contents: string) =>
     fs.writeFileString(path.join(root, file), contents);
   yield* fs.makeDirectory(path.join(root, "confect", "tables"), {

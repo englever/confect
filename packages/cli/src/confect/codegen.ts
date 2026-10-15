@@ -11,6 +11,8 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Record from "effect/Record";
 import * as Ref from "effect/Ref";
+import type * as Scope from "effect/Scope";
+import { remove } from "../Remove";
 import * as Bundler from "../Bundler";
 import * as CodegenError from "../CodegenError";
 import {
@@ -120,17 +122,23 @@ export const codegen = Command.make("codegen", DirectoryOptions.flags, () =>
   ),
 );
 
-export const codegenHandler = Effect.gen(function* () {
+export const makeCodegenHandler = Effect.fn("Cli.codegen")(function* (
+  duringRestore: Effect.Effect<void, never, Scope.Scope> = Effect.void,
+) {
   const tracker = yield* Ref.make(false);
 
   const target = yield* ConvexDirectory.target;
   const functionPaths = yield* (
-    target.kind === "component" ? runComponentCodegen : runCodegen
+    target.kind === "component"
+      ? runComponentCodegen(duringRestore)
+      : runCodegen
   ).pipe(Effect.provideService(WriteTracker, tracker));
 
   const anyWritesHappened = yield* Ref.get(tracker);
   return { functionPaths, anyWritesHappened };
-}).pipe(Effect.withSpan("Cli.codegen"));
+});
+
+export const codegenHandler = makeCodegenHandler();
 
 const runCodegen = Effect.gen(function* () {
   yield* validateComponentConfiguration;
@@ -210,52 +218,60 @@ const runCodegen = Effect.gen(function* () {
 });
 
 // Specs can import bootstrap output, so preserve it until their runtimes are known.
-const runComponentCodegen = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const confectDirectory = yield* ConfectDirectory.get;
-  const convexDirectory = yield* ConvexDirectory.get;
-  const backupDirectory = yield* fs.makeTempDirectoryScoped();
-  const configPath = path.join(
-    convexDirectory,
-    ConvexConfig.CONVEX_CONFIG_FILENAME,
-  );
-  const snapshots = yield* Effect.forEach(
-    [path.join(confectDirectory, GENERATED_DIRNAME), configPath],
-    Effect.fnUntraced(function* (original, index) {
-      const backup = path.join(backupDirectory, String(index));
-      const existed = yield* fs.exists(original);
-      if (existed) yield* fs.copy(original, backup);
-      return { original, backup, existed };
-    }),
-  );
-  return yield* runCodegen.pipe(
-    Effect.tapErrorTag("ComponentNodeGroupError", () =>
-      Effect.forEach(snapshots, ({ original, backup, existed }) =>
+const runComponentCodegen = (
+  duringRestore: Effect.Effect<void, never, Scope.Scope>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const confectDirectory = yield* ConfectDirectory.get;
+    const convexDirectory = yield* ConvexDirectory.get;
+    const backupDirectory = yield* fs.makeTempDirectoryScoped();
+    const configPath = path.join(
+      convexDirectory,
+      ConvexConfig.CONVEX_CONFIG_FILENAME,
+    );
+    const snapshots = yield* Effect.forEach(
+      [path.join(confectDirectory, GENERATED_DIRNAME), configPath],
+      Effect.fnUntraced(function* (original, index) {
+        const backup = path.join(backupDirectory, String(index));
+        const existed = yield* fs.exists(original);
+        if (existed) yield* fs.copy(original, backup);
+        return { original, backup, existed };
+      }),
+    );
+    return yield* runCodegen.pipe(
+      Effect.tapErrorTag("ComponentNodeGroupError", (rejection) =>
         Effect.gen(function* () {
-          if (
-            existed &&
-            original === configPath &&
-            (yield* fs.exists(original)) &&
-            (yield* fs.readFileString(original)) ===
-              (yield* fs.readFileString(backup))
-          ) {
-            return;
-          }
-          if (yield* fs.exists(original)) {
-            yield* fs.remove(original, { recursive: true });
-          }
-          if (existed) yield* fs.copy(backup, original);
-          else yield* logFileRemoved(original);
-        }),
-      ).pipe(
-        Effect.andThen(
-          logWarn("Restored generated output after rejecting the Node group."),
+          yield* duringRestore;
+          yield* Effect.forEach(snapshots, ({ original, backup, existed }) =>
+            Effect.gen(function* () {
+              if (
+                existed &&
+                original === configPath &&
+                (yield* fs.exists(original)) &&
+                (yield* fs.readFileString(original)) ===
+                  (yield* fs.readFileString(backup))
+              ) {
+                return;
+              }
+              if (yield* fs.exists(original)) {
+                yield* remove(original);
+              }
+              if (existed) yield* fs.copy(backup, original);
+              else yield* logFileRemoved(original);
+            }),
+          );
+          yield* logWarn(
+            "Restored generated output after rejecting the Node group.",
+          );
+        }).pipe(
+          Effect.scoped,
+          Effect.tapError(() => CodegenError.logCodegenError(rejection)),
         ),
       ),
-    ),
-  );
-}).pipe(Effect.scoped);
+    );
+  }).pipe(Effect.scoped);
 
 const validateComponentConfiguration = Effect.gen(function* () {
   return yield* Match.value((yield* ConvexDirectory.target).kind).pipe(

@@ -34,6 +34,11 @@ export class SpecMissingDefaultGroupSpecError extends Schema.TaggedError<SpecMis
   },
 ) {}
 
+export class RemoveBusyError extends Schema.TaggedError<RemoveBusyError>()(
+  "RemoveBusyError",
+  { path: Schema.String, attempts: Schema.Finite, cause: Schema.Unknown },
+) {}
+
 export class ComponentNodeGroupError extends Schema.TaggedError<ComponentNodeGroupError>()(
   "ComponentNodeGroupError",
   {
@@ -185,6 +190,7 @@ export const CodegenError = Schema.Union([
   MissingSpecFileError,
   SpecMissingDefaultGroupSpecError,
   ComponentNodeGroupError,
+  RemoveBusyError,
   SpecImportsServerError,
   InvalidMiddlewareAttachmentError,
   ImplMissingSpecImportError,
@@ -401,6 +407,13 @@ export const renderCodegenError = (error: CodegenError): string => {
   if (error._tag === "ComponentNodeGroupError") {
     return singleLine(
       `Group "${error.groupPath}" in ${error.specPath} uses the Node runtime. Convex components do not support Node.js functions.`,
+    );
+  }
+  if (error._tag === "RemoveBusyError") {
+    return singleLine(
+      "Could not remove ",
+      formatPath(error.path),
+      ` after ${error.attempts} attempts because it is busy. Close other tools using it and try again.`,
     );
   }
   return Match.value(error).pipe(

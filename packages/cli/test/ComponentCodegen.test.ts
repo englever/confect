@@ -6,7 +6,12 @@ import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { codegenHandler } from "@confect/cli/confect/codegen";
+import * as PlatformError from "effect/PlatformError";
+import * as Console from "effect/Console";
+import {
+  codegenHandler,
+  makeCodegenHandler,
+} from "@confect/cli/confect/codegen";
 import * as DirectoryOptions from "@confect/cli/DirectoryOptions";
 import * as Project from "./integration/Project";
 
@@ -247,6 +252,111 @@ export default GroupSpec.make().addGroup(GroupSpec.makeNodeAt("worker"));
         false,
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "pauses the watcher before rollback removes output and resumes after rejection",
+  () =>
+    Effect.gen(function* () {
+      const project = yield* Project.makeNodeComponent;
+      const fs = yield* FileSystem.FileSystem;
+      const paths = yield* Path.Path;
+      const generated = paths.join(project.root, "confect", "_generated");
+      const lifecycle: string[] = [];
+      let watching = true;
+      const duringRestore = Effect.acquireRelease(
+        Effect.sync(() => {
+          watching = false;
+          lifecycle.push("pause");
+        }),
+        () =>
+          Effect.sync(() => {
+            watching = true;
+            lifecycle.push("resume");
+          }),
+      );
+      const guardedFs = FileSystem.FileSystem.of({
+        ...fs,
+        remove: (path, options) =>
+          Effect.suspend(() => {
+            if (path === generated) {
+              if (watching)
+                return Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "PermissionDenied",
+                    module: "FileSystem",
+                    method: "remove",
+                    pathOrDescriptor: path,
+                  }),
+                );
+              lifecycle.push("remove");
+            }
+            return fs.remove(path, options);
+          }),
+      });
+      const result = yield* makeCodegenHandler(duringRestore).pipe(
+        Effect.provide(
+          DirectoryOptions.layer({
+            componentDir: Option.some(`${project.root}/convex`),
+          }),
+        ),
+        Effect.provideService(FileSystem.FileSystem, guardedFs),
+        Effect.result,
+      );
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({
+        _tag: "ComponentNodeGroupError",
+        groupPath: "tasks",
+      });
+      expect(lifecycle).toEqual(["pause", "remove", "resume"]);
+      expect(watching).toBe(true);
+      expect(yield* fs.exists(generated)).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("reports the rejected group when rollback itself fails", () =>
+  Effect.gen(function* () {
+    const project = yield* Project.makeNodeComponent;
+    const fs = yield* FileSystem.FileSystem;
+    const paths = yield* Path.Path;
+    const generated = paths.join(project.root, "confect", "_generated");
+    const denied = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "remove",
+      pathOrDescriptor: generated,
+    });
+    const messages: unknown[] = [];
+    const console = yield* Console.Console;
+    const result = yield* codegenHandler.pipe(
+      Effect.provide(
+        DirectoryOptions.layer({
+          componentDir: Option.some(`${project.root}/convex`),
+        }),
+      ),
+      Effect.provideService(FileSystem.FileSystem, {
+        ...fs,
+        remove: (path, options) =>
+          path === generated ? Effect.fail(denied) : fs.remove(path, options),
+      }),
+      Effect.provideService(
+        Console.Console,
+        new Proxy(console, {
+          get: (target, key, receiver) =>
+            key === "error"
+              ? (...args: readonly unknown[]) => {
+                  messages.push(...args);
+                }
+              : Reflect.get(target, key, receiver),
+        }),
+      ),
+      Effect.result,
+    );
+    expect(result).toEqual(Result.fail(denied));
+    expect(messages.join("\n")).toContain(
+      'Group "tasks" in tasks.spec.ts uses the Node runtime. Convex components do not support Node.js functions.',
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect.each(["configured", "declared"] as const)(
