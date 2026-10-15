@@ -11,33 +11,55 @@ const success = "Generated files are up-to-date";
 layer(NodeServices.layer, { excludeTestServices: true })(
   "built confect dev",
   (it) => {
-    it.effect(
-      "reports a component Node group and recovers when the group is removed",
-      () =>
+    it.effect.each(["initial sync", "after a successful sync"] as const)(
+      "reports a component Node group at %s and recovers when the group is removed",
+      (when) =>
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const project = yield* Project.makeNodeComponent;
           const nodeSpec = yield* fs.readFileString(
             `${project.root}/confect/tasks.spec.ts`,
           );
+          const dependentSpec = `import { scope } from "./_generated/id";\nexport const componentScope = scope;\n${nodeSpec}`;
           yield* project.write(
             "confect/tasks.spec.ts",
-            `import { scope } from "./_generated/id";\nexport const componentScope = scope;\n${nodeSpec}`,
+            when === "initial sync"
+              ? dependentSpec
+              : dependentSpec
+                  .replace("makeNode()", "make()")
+                  .replace("publicNodeAction", "publicAction"),
           );
           const watching = yield* project.start("dev", [
             "--component-dir",
             "convex",
           ]);
+          if (when === "after a successful sync") {
+            yield* watching.waitFor(success);
+            yield* Effect.sleep("2 seconds");
+            yield* Ref.set(watching.output, "");
+            yield* project.write("confect/tasks.spec.ts", dependentSpec);
+          }
           const message =
             'Group "tasks" in tasks.spec.ts uses the Node runtime. Convex components do not support Node.js functions.';
           yield* watching.waitFor(message);
-          yield* watching.waitFor(message);
+          if (when === "initial sync") yield* watching.waitFor(message);
           expect(yield* Ref.get(watching.output)).not.toContain(success);
-          expect(yield* fs.exists(`${project.root}/confect/_generated`)).toBe(
-            false,
+          expect(yield* Ref.get(watching.output)).toContain(
+            "Restored generated output after rejecting the Node group.",
           );
+          if (when === "initial sync") {
+            expect(yield* fs.exists(`${project.root}/confect/_generated`)).toBe(
+              false,
+            );
+          } else {
+            expect(
+              yield* fs.readFileString(
+                `${project.root}/confect/_generated/component.ts`,
+              ),
+            ).toContain("Component.make(spec, scope,");
+          }
           const settled = yield* Ref.get(watching.output);
-          yield* Effect.sleep("2 seconds");
+          yield* Effect.sleep("6 seconds");
           expect(yield* Ref.get(watching.output)).toBe(settled);
           yield* fs.remove(`${project.root}/confect/tasks.spec.ts`);
           yield* fs.remove(`${project.root}/confect/tasks.impl.ts`);

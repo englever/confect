@@ -248,6 +248,10 @@ const runComponentCodegen = Effect.gen(function* () {
           if (existed) yield* fs.copy(backup, original);
           else yield* logFileRemoved(original);
         }),
+      ).pipe(
+        Effect.andThen(
+          logWarn("Restored generated output after rejecting the Node group."),
+        ),
       ),
     ),
   );
