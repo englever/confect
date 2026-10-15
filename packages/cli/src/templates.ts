@@ -224,8 +224,9 @@ const convexSchemaEffect = Effect.fnUntraced(function* ({
  * id references without typing the destination name as a free string (and
  * without ever importing each other transitively).
  *
- * When the table directory is empty the `TableNames` union resolves to `never`,
- * which still lets the file typecheck against an empty workspace.
+ * `Id` also accepts Convex system tables, with the component scope when
+ * present. `TableNames` includes only user tables and resolves to `never` for
+ * an empty table directory.
  */
 export const id = ({ tableNames, scope }: Parameters<typeof idEffect>[0]) =>
   idEffect({ tableNames, scope });
