@@ -14,6 +14,11 @@ export type Definition = ComponentDefinition<any, any>;
 
 export type HttpPrefix = `/${string}`;
 
+/**
+ * Any `HttpApi`, with its identifier and groups erased.
+ */
+export type Api = HttpApi.HttpApi<string, any>;
+
 type EnvOf<D extends Definition> = D["__env"];
 
 type IsOptional<V> = V extends Validator<any, "optional", any> ? true : false;
@@ -41,7 +46,7 @@ export type Bindings<E extends EnvDefinition> = {
 
 type HttpOptions =
   | { readonly httpPrefix?: never; readonly api?: never }
-  | { readonly httpPrefix: HttpPrefix; readonly api?: HttpApi.Top };
+  | { readonly httpPrefix: HttpPrefix; readonly api?: Api };
 
 export type Options<D extends Definition> = HttpOptions &
   ([RequiredKeys<EnvOf<D>>] extends [never]
@@ -59,7 +64,7 @@ type Exact<D extends Definition, O> = {
 export interface MountData {
   readonly definition: Definition;
   readonly httpPrefix: HttpPrefix | undefined;
-  readonly api: HttpApi.Top | undefined;
+  readonly api: Api | undefined;
   readonly env: Readonly<Record<string, string | Env.AnyEntry | undefined>>;
 }
 
@@ -99,7 +104,7 @@ export function mount(
   definition: Definition,
   options?: {
     readonly httpPrefix?: HttpPrefix;
-    readonly api?: HttpApi.Top;
+    readonly api?: Api;
     readonly env?: MountData["env"];
   },
 ): AnyMount {

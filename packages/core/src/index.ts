@@ -5,6 +5,7 @@ export * as App from "./App";
 export * as Auth from "./Auth";
 export * as Component from "./Component";
 export * as Env from "./Env";
+export * as Http from "./Http";
 export * as IdScope from "./IdScope";
 export * as GroupPath from "./GroupPath";
 export * as GroupSpec from "./GroupSpec";
