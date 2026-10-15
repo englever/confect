@@ -330,6 +330,30 @@ const httpEffect = Effect.fnUntraced(function* ({
   return yield* cbw.toString();
 });
 
+/**
+ * Emit `convex/http.ts` for a declared backend: the Convex router serving
+ * `confect/http.ts`'s routes, typed by the generated database schema.
+ */
+export const declaredHttp = Effect.fnUntraced(function* ({
+  schemaImportPath,
+  httpImportPath,
+}: {
+  schemaImportPath: string;
+  httpImportPath: string;
+}) {
+  const cbw = new CodeBlockWriter({ indentNumberOfSpaces: 2 });
+
+  yield* cbw.writeLine(`import { HttpRouter } from "@confect/server";`);
+  yield* cbw.writeLine(`import schema from "${schemaImportPath}";`);
+  yield* cbw.writeLine(`import http from "${httpImportPath}";`);
+  yield* cbw.newLine();
+  yield* cbw.writeLine(
+    `export default HttpRouter.forSchema(schema)(http.routes);`,
+  );
+
+  return yield* cbw.toString();
+});
+
 export const crons = ({ cronsImportPath }: Parameters<typeof cronsEffect>[0]) =>
   cronsEffect({ cronsImportPath });
 

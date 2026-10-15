@@ -51,6 +51,7 @@ import {
 import * as TableModule from "../TableModule";
 import * as templates from "../templates";
 import * as DirectoryOptions from "../DirectoryOptions";
+import { syncDeclaration, syncDeclaredHttp } from "./declaration";
 import {
   generateAuthConfig,
   generateCrons,
@@ -115,7 +116,7 @@ export const codegen = Command.make("codegen", DirectoryOptions.flags, () =>
 ).pipe(
   Command.provide(DirectoryOptions.layer),
   Command.withDescription(
-    "Generate `confect/_generated` files and the contents of the `convex` directory (except `convex.config.ts` and `tsconfig.json`)",
+    "Generate `confect/_generated` files and the contents of the `convex` directory (except `tsconfig.json`, and `convex.config.ts` unless `confect/app.ts` declares the backend)",
   ),
 );
 
@@ -133,6 +134,10 @@ export const codegenHandler = Effect.gen(function* () {
 const runCodegen = Effect.gen(function* () {
   yield* validateComponentConfiguration;
   yield* generateConfectGeneratedDirectory;
+  // A declared backend's `convex.config.ts` and manifest come first: the
+  // components registry below reads the config, and nothing may validate
+  // against a manifest the current declaration did not produce.
+  const declared = yield* syncDeclaration;
   // Reject a legacy `confect/schema.ts` up front so the user-facing
   // migration message surfaces before any bundler error from impl
   // validation (each impl imports `_generated/schema.ts`).
@@ -186,9 +191,16 @@ const runCodegen = Effect.gen(function* () {
     [
       generateFunctionModules,
       generateConvexSchemaReexport,
-      logGenerated(generateHttp),
+      logGenerated(
+        Option.match(declared, {
+          onNone: () => generateHttp,
+          onSome: syncDeclaredHttp,
+        }),
+      ),
       logGenerated(generateCrons),
-      logGenerated(generateAuthConfig),
+      Option.isNone(declared)
+        ? logGenerated(generateAuthConfig)
+        : Effect.succeedNone,
     ],
     { concurrency: "unbounded" },
   );
@@ -1035,7 +1047,16 @@ export const generateComponents = Effect.gen(function* () {
   yield* writeFileStringAndLog(componentsPath, contents);
 });
 
-const logGenerated = (effect: typeof generateHttp) =>
+const logGenerated = <E, R>(
+  effect: Effect.Effect<
+    Option.Option<{
+      readonly change: "Added" | "Modified" | "Unchanged";
+      readonly convexFilePath: string;
+    }>,
+    E,
+    R
+  >,
+) =>
   effect.pipe(
     Effect.tap(
       Option.match({

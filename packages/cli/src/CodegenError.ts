@@ -155,6 +155,22 @@ export class InvalidConvexConfigError extends Schema.TaggedError<InvalidConvexCo
   },
 ) {}
 
+export class InvalidDeclarationError extends Schema.TaggedError<InvalidDeclarationError>()(
+  "InvalidDeclarationError",
+  {
+    declarationPath: Schema.String,
+    reason: Schema.String,
+  },
+) {}
+
+export class HandWrittenConvexFileError extends Schema.TaggedError<HandWrittenConvexFileError>()(
+  "HandWrittenConvexFileError",
+  {
+    convexPath: Schema.String,
+    declarationPath: Schema.String,
+  },
+) {}
+
 export const CodegenError = Schema.Union([
   BuildError,
   MissingImplFileError,
@@ -174,6 +190,8 @@ export const CodegenError = Schema.Union([
   LegacySchemaFileError,
   ConflictingDocNameError,
   InvalidConvexConfigError,
+  InvalidDeclarationError,
+  HandWrittenConvexFileError,
 ]);
 export type CodegenError = typeof CodegenError.Type;
 
@@ -406,6 +424,22 @@ export const renderCodegenError = (error: CodegenError): string => {
     Match.tag("LegacySchemaFileError", renderLegacySchemaFileError),
     Match.tag("ConflictingDocNameError", renderConflictingDocNameError),
     Match.tag("InvalidConvexConfigError", renderInvalidConvexConfigError),
+    Match.tag("InvalidDeclarationError", (declarationError) =>
+      singleLine(
+        "Declaration ",
+        formatPath(declarationError.declarationPath),
+        ` is invalid: ${declarationError.reason}`,
+      ),
+    ),
+    Match.tag("HandWrittenConvexFileError", (handWritten) =>
+      singleLine(
+        "Found a hand-written ",
+        formatPath(handWritten.convexPath),
+        ". `confect codegen` writes it from ",
+        formatPath(handWritten.declarationPath),
+        " now; move its contents there and delete the file.",
+      ),
+    ),
     Match.exhaustive,
   );
 };
