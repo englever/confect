@@ -151,7 +151,7 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Testing and documentation
 
-### Fork documentation (this PR)
+### [#24](https://github.com/englever/confect/pull/24) Document the satellite fork
 
 Identify the satellite fork, its release tracking, published aliases, and support
 channel in the README. Add this change inventory and require hand maintenance in
