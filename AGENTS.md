@@ -90,6 +90,8 @@ Run `pnpm test` to run all suites at once, or target a single package with `vite
 
 ## Versioning and Publishing
 
+Update the hand-maintained `CHANGES.md` in every fork PR with what changed, why, the fork PR number, changeset coverage, and upstream intent or proposal.
+
 All @confect packages are in a fixed version group via Changesets, meaning they are always versioned and released together. Use `pnpm changeset` to create a changeset before merging a PR with user-facing changes.
 
 ## Capy development environment
