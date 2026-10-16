@@ -1,5 +1,35 @@
 # Confect 🧁
 
+## Englever satellite fork
+
+This is [Englever's fork](https://github.com/englever/confect) of [Confect](https://github.com/rjdellecese/confect), maintained for Edcell.
+It adds Convex component authoring, typed callbacks, declarative backend configuration, HTTP route labels, Alchemy cloud and local providers, component testing support, and CLI fixes. See [CHANGES.md](CHANGES.md) for patches and upstream status.
+
+`englever/main` tracks stable upstream releases. A scheduled check tries the newest stable release and reports conflicts. A maintainer lands the rebase.
+
+Fork builds publish as `@englever/confect-*` on GitHub Packages. Choose a green [Publish fork builds run](https://github.com/englever/confect/actions/workflows/publish.yml).
+Pin every alias to the same exact build. Do not use floating tags.
+
+Configure your user `~/.npmrc` and supply `NODE_AUTH_TOKEN` through your environment with package read permission:
+
+```ini
+@englever:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Replace `<version>` with the build you chose. Aliases preserve `@confect/*` imports:
+
+```sh
+pnpm add --strict-peer-dependencies '@confect/core@npm:@englever/confect-core@<version>' '@confect/server@npm:@englever/confect-server@<version>' '@confect/test@npm:@englever/confect-test@<version>' '@confect/cli@npm:@englever/confect-cli@<version>'
+```
+
+The consumer artifact of a green "Publish fork builds" run holds the exact pinned manifest, lockfile and install command; `bun scripts/consumerFixture.ts <dir> <version>` regenerates it.
+Another repository's workflow token needs package read access granted separately.
+
+Report problems in [englever/confect issues](https://github.com/englever/confect/issues). Fork additions are documented in [apps/docs](apps/docs).
+
+## About Confect
+
 Confect is a framework that deeply integrates Effect with Convex. It's more than just Effect bindings! Confect allows you to:
 
 - Define your Convex database schema using Effect schemas.
