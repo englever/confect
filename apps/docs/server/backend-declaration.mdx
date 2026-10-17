@@ -131,7 +131,7 @@ app.use(workpool, {
 export default app;
 ```
 
-A Confect-authored component declares itself the same way, with `env.ts` and `app.ts` in its own `confect/` directory, and `confect codegen --component-dir` writes its `defineComponent(name, { env })`.
+A Confect-authored component declares itself with `App.make({ kind: "component", env, mounts })`, with `env.ts` and `app.ts` in its own `confect/` directory. `confect codegen --component-dir` writes its `defineComponent(name, { env })`. The kind defaults to `"app"`; codegen rejects a declaration whose kind differs from the target directory. Components can mount other components, but `Auth.make` accepts only app declarations.
 
 ## `auth.ts`
 

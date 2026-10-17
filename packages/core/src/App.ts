@@ -133,11 +133,15 @@ type OwnedBy<N extends string, M> = {
     : { readonly foreignEnvBackend: Exclude<Owners<M[K]>, N> };
 };
 
+export type Kind = "app" | "component";
+
 export interface App<
   E extends Env.Any,
   M extends Readonly<Record<string, AnyMount>>,
+  K extends Kind = Kind,
 > {
   readonly [TypeId]: typeof TypeId;
+  readonly kind: K;
   readonly env: E;
   readonly mounts: M;
 }
@@ -146,8 +150,10 @@ export type Any = App<Env.Any, Readonly<Record<string, AnyMount>>>;
 
 /**
  * Declare a backend, in `confect/app.ts`: its env and its mounted Convex
- * components by name. Codegen writes `convex/convex.config.ts` from it. A mount
- * that binds another backend's env entry fails to typecheck.
+ * components by name. Set `kind: "component"` when declaring a component; the
+ * default is `"app"`. Codegen rejects a kind that differs from its target.
+ * Codegen writes `convex/convex.config.ts` from it. A mount that binds another
+ * backend's env entry fails to typecheck.
  *
  * ```ts
  * export default App.make({
@@ -165,17 +171,24 @@ export type Any = App<Env.Any, Readonly<Record<string, AnyMount>>>;
 export const make = <
   const E extends Env.Any,
   const M extends Readonly<Record<string, AnyMount>> = {},
->(options: {
-  readonly env: E;
-  readonly mounts?: M & OwnedBy<NoInfer<Env.Name<E>>, NoInfer<M>>;
-}): App<E, M> => ({
+  const K extends Kind = "app",
+>(
+  options: {
+    readonly env: E;
+    readonly mounts?: M & OwnedBy<NoInfer<Env.Name<E>>, NoInfer<M>>;
+  } & ([K] extends ["app"] ? { readonly kind?: K } : { readonly kind: K }),
+): App<E, M, K> => ({
   [TypeId]: TypeId,
+  kind: options.kind ?? ("app" as K),
   env: options.env,
   mounts: options.mounts ?? ({} as M),
 });
 
 export const isApp = (u: unknown): u is Any =>
-  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId;
+  Predicate.hasProperty(u, TypeId) &&
+  u[TypeId] === TypeId &&
+  Predicate.hasProperty(u, "kind") &&
+  (u.kind === "app" || u.kind === "component");
 
 export const isMount = (u: unknown): u is AnyMount =>
   Predicate.hasProperty(u, MountTypeId);

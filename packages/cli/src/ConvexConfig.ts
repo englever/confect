@@ -322,6 +322,31 @@ export const discoverInstalledComponents = Effect.fn(
 });
 
 /**
+ * The name passed to `defineComponent`, independent of the package's ID scope.
+ */
+export const componentName = Effect.fnUntraced(function* (configPath: string) {
+  const path = yield* Path.Path;
+  const { module } = yield* Bundler.bundle(configPath, {
+    plugins: [componentConfigPlugin(path)],
+  }).pipe(
+    Effect.mapError((error) =>
+      fromBundlerError("convex/convex.config.ts", error),
+    ),
+  );
+  const definition: unknown = module.default;
+  if (
+    !Predicate.hasProperty(definition, "_name") ||
+    !Predicate.isString(definition._name)
+  ) {
+    return yield* new InvalidConvexConfigError({
+      configPath: "convex/convex.config.ts",
+      reason: "the component definition must have a string name.",
+    });
+  }
+  return definition._name;
+});
+
+/**
  * The module specifier the generated registry's `ComponentApi` type import
  * should use for a component, following Convex's own codegen convention:
  * `<definition directory>/_generated/component.js`. Bare (npm) definition

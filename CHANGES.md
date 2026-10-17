@@ -51,6 +51,17 @@ Upstream: fork only.
 
 ## Component authoring and contracts
 
+### [#30](https://github.com/englever/confect/pull/30) Check component declarations
+
+Carry a literal app or component kind in backend declarations. Default to app,
+require `kind: "component"` for components, and reject component declarations in
+`Auth.make`. Reject codegen targets whose kind differs from the declaration and
+callback contracts exported from `confect/callbacks.ts` whose IDs do not start
+with the component's `defineComponent` name followed by `/`.
+
+Changeset: `check-component-declarations.md`.
+Upstream: planned; no linked proposal verified.
+
 ### [#5](https://github.com/englever/confect/pull/5) Author Convex components
 
 Add component codegen and dev modes, published contracts, `Component.bind`,

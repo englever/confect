@@ -8,7 +8,7 @@ A Confect component is a Convex component with Effect handlers and a generated p
 
 ## Declare a component
 
-Author the component's env and app in its own `confect/` directory. The env name becomes the Convex component name. The counter needs no environment variables:
+Author the component's env and app in its own `confect/` directory, with `kind: "component"`. The env name becomes the Convex component name. The counter needs no environment variables:
 
 ```ts components/counter/confect/env.ts
 import { Env } from "@confect/core";
@@ -18,7 +18,7 @@ export default Env.make("counter", {});
 ```ts components/counter/confect/app.ts
 import { App } from "@confect/core";
 import env from "./env";
-export default App.make({ env });
+export default App.make({ kind: "component", env });
 ```
 
 Run `confect codegen --component-dir components/counter/convex`. Codegen writes this definition:
@@ -239,6 +239,8 @@ export const OnResult = Callback.mutation("counter/onResult", {
 });
 ```
 
+Codegen checks contracts exported from `confect/callbacks.ts`. Each id must start with the name passed to `defineComponent`, followed by `/` (for a declared component, this is the name in `Env.make`). It checks the exports without evaluating schema thunks. A component without this file passes.
+
 Use `Callback.handle(OnResult)` in the component's function args or tables. On the wire it is a string; after decoding it is a runnable reference branded with the contract id. Handles for different ids are incompatible even when their shapes match. The fixture's component spec is:
 
 ```ts components/counter/confect/counter.spec.ts
@@ -311,12 +313,14 @@ Component handlers use their own database, scoped storage services and scheduler
 
 Codegen protects hand-written config files. Move their contents into declarations and delete them before opting in. The messages below omit terminal styling and the leading cross; placeholders stand for values from your project.
 
-| Tag                          | Diagnostic text                                                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HandWrittenConvexFileError` | Found a hand-written `<convexPath>`. `confect codegen` writes it from `<declarationPath>` now; move its contents there and delete the file. |
-| `InvalidConvexConfigError`   | Convex config `<configPath>` could not be evaluated: `<reason>`                                                                             |
-| `ComponentNodeGroupError`    | Group "`<groupPath>`" in `<specPath>` uses the Node runtime. Convex components do not support Node.js functions.                            |
-| `InvalidDeclarationError`    | Declaration `<declarationPath>` is invalid: `<reason>`                                                                                      |
+| Tag                            | Diagnostic text                                                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HandWrittenConvexFileError`   | Found a hand-written `<convexPath>`. `confect codegen` writes it from `<declarationPath>` now; move its contents there and delete the file. |
+| `InvalidConvexConfigError`     | Convex config `<configPath>` could not be evaluated: `<reason>`                                                                             |
+| `ComponentNodeGroupError`      | Group "`<groupPath>`" in `<specPath>` uses the Node runtime. Convex components do not support Node.js functions.                            |
+| `InvalidDeclarationError`      | Declaration `<declarationPath>` is invalid: `<reason>`                                                                                      |
+| `DeclarationKindMismatchError` | Declaration `<declarationPath>` declares kind "`<declaredKind>`", but the target directory is kind "`<targetKind>`".                        |
+| `CallbackPrefixError`          | Callback contract "`<contractId>`" in `<declarationPath>` must start with "`<componentName>`/" for component "`<componentName>`".           |
 
 A component's `confect/auth.ts` produces `InvalidConvexConfigError` with the reason `Components cannot configure application authentication. Pass identity explicitly through function arguments.` A non-`Http.make` HTTP default export produces `InvalidDeclarationError` with `it must default-export Http.make(...).` Declaration parsing wraps these tagged reasons in `InvalidDeclarationError`:
 

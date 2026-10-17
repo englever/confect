@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { App, Auth, Env } from "@confect/core";
 import { defineComponent } from "convex/server";
 
@@ -13,6 +13,25 @@ const app = App.make({
 });
 
 describe("Auth", () => {
+  it("accepts app declarations and rejects component declarations by type", () => {
+    const component = App.make({
+      kind: "component",
+      env: Env.make("counter", {}),
+    });
+    expectTypeOf(app.kind).toEqualTypeOf<"app">();
+    expectTypeOf(component.kind).toEqualTypeOf<"component">();
+    expectTypeOf(Auth.make(app, { providers: [] }).app).toEqualTypeOf<
+      typeof app
+    >();
+    // @ts-expect-error Auth.make accepts only app declarations.
+    Auth.make(component, { providers: [] });
+    const checkUnion = (either: App.Any) => {
+      // @ts-expect-error A declaration whose kind is not known to be app is rejected.
+      Auth.make(either, { providers: [] });
+    };
+    void checkUnion;
+  });
+
   it("keeps Convex's provider list with site URL placeholders", () => {
     const auth = Auth.make(app, {
       providers: [
