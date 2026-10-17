@@ -34,15 +34,15 @@ export const consumerManifest = (version: string, tarballs?: string) => {
       "@confect/cli": forkPackage("cli"),
       convex: "1.46.0",
       "convex-test": "0.0.60",
-      effect: "4.0.1",
-      "@effect/platform-node": "4.0.1",
+      effect: "4.0.4",
+      "@effect/platform-node": "4.0.4",
     },
     // Pinned to the versions this workspace itself is verified against, so the
     // consumer typechecks and tests with the same toolchain; a bump is one edit.
     devDependencies: {
-      "@types/node": "26.6.4",
+      "@types/node": "26.6.5",
       typescript: "7.0.2",
-      vite: "8.3.2",
+      vite: "8.3.4",
       vitest: "5.0.3",
     },
     packageManager: "pnpm@12.8.1",

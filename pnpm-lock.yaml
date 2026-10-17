@@ -207,8 +207,8 @@ importers:
         specifier: 4.0.1
         version: 4.0.1
       '@effect/platform-bun':
-        specifier: 4.0.1
-        version: 4.0.1(effect@4.0.4)
+        specifier: 4.0.4
+        version: 4.0.4(effect@4.0.4)
       '@effect/platform-node':
         specifier: 4.0.4
         version: 4.0.4(effect@4.0.4)(redis@6.2.1)
@@ -365,17 +365,17 @@ importers:
         specifier: workspace:*
         version: link:../cli
       '@effect/platform-node':
-        specifier: 4.0.1
-        version: 4.0.1(effect@4.0.4)(redis@6.2.1)
+        specifier: 4.0.4
+        version: 4.0.4(effect@4.0.4)(redis@6.2.1)
       '@effect/vitest':
-        specifier: 4.0.1
-        version: 4.0.1(effect@4.0.4)(vitest@5.0.3)
+        specifier: 4.0.4
+        version: 4.0.4(effect@4.0.4)(vitest@5.0.3)
       '@types/node':
-        specifier: 26.6.4
-        version: 26.6.4
+        specifier: 26.6.5
+        version: 26.6.5
       alchemy:
         specifier: 2.0.0-beta.82
-        version: 2.0.0-beta.82(@effect/platform-bun@4.0.1(effect@4.0.4))(@effect/platform-node@4.0.1(effect@4.0.4)(redis@6.2.1))(@effect/vitest@4.0.1(effect@4.0.4)(vitest@5.0.3))(@types/node@26.6.4)(@types/react@19.3.0)(effect@4.0.4)(hono@4.11.4)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))(ws@8.22.0)
+        version: 2.0.0-beta.82(@effect/platform-bun@4.0.4(effect@4.0.4))(@effect/platform-node@4.0.4(effect@4.0.4)(redis@6.2.1))(@effect/vitest@4.0.4(effect@4.0.4)(vitest@5.0.3))(@types/node@26.6.5)(@types/react@19.3.0)(effect@4.0.4)(hono@4.11.4)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))(ws@8.22.0)
       convex:
         specifier: 1.46.0
         version: 1.46.0(react@19.3.0)
@@ -383,8 +383,8 @@ importers:
         specifier: 4.0.4
         version: 4.0.4
       tsdown:
-        specifier: 0.23.0
-        version: 0.23.0(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1)
+        specifier: 0.23.1
+        version: 0.23.1(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -393,7 +393,7 @@ importers:
         version: 0.3.1
       vitest:
         specifier: 5.0.3
-        version: 5.0.3(@types/node@26.6.4)(@vitest/browser-preview@4.1.11)(@vitest/coverage-v8@5.0.3)(happy-dom@20.14.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
+        version: 5.0.3(@types/node@26.6.5)(@vitest/browser-preview@4.1.11)(@vitest/coverage-v8@5.0.3)(happy-dom@20.14.5)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/cli:
     dependencies:
@@ -1251,14 +1251,8 @@ packages:
     peerDependencies:
       effect: 4.0.4
 
-  '@effect/platform-bun@4.0.1':
-    resolution: {integrity: sha512-m+QR4bp39ZWujCuEsUhZADIYIOFZcUHHlmrixENZqZRbEYgaPLMUWiPrRJ69CM4BuuHW8oCOxfMGUU7oSw/o5g==}
-    peerDependencies:
-      effect: 4.0.4
-
-  '@effect/platform-node-shared@4.0.1':
-    resolution: {integrity: sha512-VanaejudEhKJ4mpmqnEzdncVUhN6sGSO9ZDND54mRxAlZxj+4dYAWjDTYAy9o4tJo9aALeP2U8cVcOFzEdSeLg==}
-    engines: {node: '>=18.0.0'}
+  '@effect/platform-bun@4.0.4':
+    resolution: {integrity: sha512-L5xA9sF2RET7rqi18Q8yUcWq301o+jBMm9GWJixmJWGwzeipzMqjjPk+10vE8vUiHPbtdtJaBSIgs0AJ2jEF1g==}
     peerDependencies:
       effect: 4.0.4
 
@@ -1267,13 +1261,6 @@ packages:
     engines: {node: '>=18.0.0'}
     peerDependencies:
       effect: 4.0.4
-
-  '@effect/platform-node@4.0.1':
-    resolution: {integrity: sha512-FT0Fu5LO0/XP9zBpj0HqrtJNLluK4StNKqf6TSulUsjp8FPBsDVXGJiDuyoN5J2yVMT7tgvhxSwaDcObWVRIaQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      effect: 4.0.4
-      redis: '>=5.0.0 <7.0.0'
 
   '@effect/platform-node@4.0.4':
     resolution: {integrity: sha512-SdoyQMrO5zmqBebb2fxDk0sHYyJjBiw4QmLdV2ZcWf3ATpQPge3B5sTLijZg49PadekOwNeO83o5TfdtiiFEig==}
@@ -1330,12 +1317,6 @@ packages:
   '@effect/tsgo@0.44.0':
     resolution: {integrity: sha512-zgrk2hLqx3vX7pZObBOBAFfvJN0bEVncEKyY2cie07KUeG3rB9IPUm4+4eTh7o0eXLQuB5rzh+ZjEJSpoLKe9A==}
     hasBin: true
-
-  '@effect/vitest@4.0.1':
-    resolution: {integrity: sha512-DbY9kf/018zBxRIX7rJwBnPVPzSarnUpcshm0vfYPFiDkSa7AFrXTh2BlDNUbrdrmqcIOBhVZ7GkEtxf8WiQrg==}
-    peerDependencies:
-      effect: 4.0.4
-      vitest: '>=5.0.0 <6.0.0'
 
   '@effect/vitest@4.0.4':
     resolution: {integrity: sha512-l5KN46RbDVpqZxWzwXZtX6FVQiyzd+/hTYqL543uSDRo7hC0m19IeICh6O9U/nqCtfersqsNZnBjgHFfkuHsBw==}
@@ -8276,40 +8257,6 @@ packages:
       typescript:
         optional: true
 
-  tsdown@0.23.0:
-    resolution: {integrity: sha512-BaT+ep1xnj5hdyICLd5r5SYYE+TXnI1ATePLykv9vcKpHpFTWUWRH+x1AF/E2qcu3YB6+vI8IdyxIIIffEqw5Q==}
-    engines: {node: ^22.18.0 || ^24.11.0 || >=26.0.0}
-    hasBin: true
-    peerDependencies:
-      '@arethetypeswrong/core': ^0.18.1
-      '@tsdown/css': 0.23.0
-      '@tsdown/exe': 0.23.0
-      '@vitejs/devtools': '*'
-      publint: ^0.3.8
-      tsx: '*'
-      typescript: ^5.0.0 || ^6.0.0 || ^7.0.0
-      unplugin-unused: '>=0.5.0'
-      unrun: '*'
-    peerDependenciesMeta:
-      '@arethetypeswrong/core':
-        optional: true
-      '@tsdown/css':
-        optional: true
-      '@tsdown/exe':
-        optional: true
-      '@vitejs/devtools':
-        optional: true
-      publint:
-        optional: true
-      tsx:
-        optional: true
-      typescript:
-        optional: true
-      unplugin-unused:
-        optional: true
-      unrun:
-        optional: true
-
   tsdown@0.23.1:
     resolution: {integrity: sha512-MSC2WSOts3in95J334/VIS7KPfor3eCSvndJ6KdoVj9Aak9Kh1aNfz9ws5owhdukuTNSXRdfkPEzA/ihpDD6SA==}
     engines: {node: ^22.18.0 || ^24.11.0 || >=26.0.0}
@@ -8564,10 +8511,6 @@ packages:
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
-
-  verkit@0.4.1:
-    resolution: {integrity: sha512-mMVzj0TXExtVdlDEq+Mzp0eyOuyznNpFobNM3uAqe3HVm/Ps2c+u17BligMkZjZCA6EiXpoon8iRTer3iu40SQ==}
-    engines: {node: '>=18.12.0'}
 
   verkit@0.5.0:
     resolution: {integrity: sha512-u4J1hr6Y+C/hit34GwL3eIcUf3wngT8TlYUjK7tk0jxydKLAq3sYvifjdTDA6U3KCKRcQCQDGf/srjxfZF3l7g==}
@@ -8982,7 +8925,7 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
-  '@alchemy.run/cloudflare-runtime@2.0.0-beta.82(@distilled.cloud/cloudflare@1.0.0-rc.15(effect@4.0.4))(@effect/platform-bun@4.0.1(effect@4.0.4))(@effect/platform-node@4.0.1(effect@4.0.4)(redis@6.2.1))(@types/node@26.6.4)(effect@4.0.4)(rolldown@1.2.5)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))':
+  '@alchemy.run/cloudflare-runtime@2.0.0-beta.82(@distilled.cloud/cloudflare@1.0.0-rc.15(effect@4.0.4))(@effect/platform-bun@4.0.4(effect@4.0.4))(@effect/platform-node@4.0.4(effect@4.0.4)(redis@6.2.1))(@types/node@26.6.5)(effect@4.0.4)(rolldown@1.2.5)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))':
     dependencies:
       '@alchemy.run/node-utils': 2.0.0-beta.82
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261002.1)
@@ -8992,15 +8935,15 @@ snapshots:
       effect: 4.0.4
       magic-string: 0.30.21
       mime: 4.1.1
-      sharp: 0.35.5(@types/node@26.6.4)
+      sharp: 0.35.5(@types/node@26.6.5)
       unenv: 2.0.0-rc.24
       workerd: 1.20261002.1
       yauzl: 3.4.0
     optionalDependencies:
-      '@effect/platform-bun': 4.0.1(effect@4.0.4)
-      '@effect/platform-node': 4.0.1(effect@4.0.4)(redis@6.2.1)
+      '@effect/platform-bun': 4.0.4(effect@4.0.4)
+      '@effect/platform-node': 4.0.4(effect@4.0.4)(redis@6.2.1)
       rolldown: 1.2.5
-      vite: 8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
+      vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@types/node'
       - proxy-agent
@@ -9459,19 +9402,10 @@ snapshots:
     dependencies:
       effect: 4.0.4
 
-  '@effect/platform-bun@4.0.1(effect@4.0.4)':
+  '@effect/platform-bun@4.0.4(effect@4.0.4)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.1(effect@4.0.4)
+      '@effect/platform-node-shared': 4.0.4(effect@4.0.4)
       effect: 4.0.4
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@effect/platform-node-shared@4.0.1(effect@4.0.4)':
-    dependencies:
-      '@types/ws': 8.18.1
-      effect: 4.0.4
-      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9481,16 +9415,6 @@ snapshots:
       '@types/ws': 8.18.2
       effect: 4.0.4
       ws: 8.22.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@effect/platform-node@4.0.1(effect@4.0.4)(redis@6.2.1)':
-    dependencies:
-      '@effect/platform-node-shared': 4.0.4(effect@4.0.4)
-      effect: 4.0.4
-      redis: 6.2.1
-      undici: 8.11.2
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9544,11 +9468,6 @@ snapshots:
       '@effect/tsgo-linux-x64': 0.44.0
       '@effect/tsgo-win32-arm64': 0.44.0
       '@effect/tsgo-win32-x64': 0.44.0
-
-  '@effect/vitest@4.0.1(effect@4.0.4)(vitest@5.0.3)':
-    dependencies:
-      effect: 4.0.4
-      vitest: 5.0.3(@types/node@26.6.4)(@vitest/browser-preview@4.1.11)(@vitest/coverage-v8@5.0.3)(happy-dom@20.14.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
 
   '@effect/vitest@4.0.4(effect@4.0.4)(vitest@5.0.3)':
     dependencies:
@@ -11939,15 +11858,6 @@ snapshots:
     optionalDependencies:
       vite: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1)(yaml@2.9.0)'
 
-  '@vitest/mocker@5.0.3(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))':
-    dependencies:
-      '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.0.3
-      estree-walker: 3.0.3
-      magic-string: 1.3.1
-    optionalDependencies:
-      vite: 8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
-
   '@vitest/mocker@5.0.3(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
@@ -12216,9 +12126,9 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  alchemy@2.0.0-beta.82(@effect/platform-bun@4.0.1(effect@4.0.4))(@effect/platform-node@4.0.1(effect@4.0.4)(redis@6.2.1))(@effect/vitest@4.0.1(effect@4.0.4)(vitest@5.0.3))(@types/node@26.6.4)(@types/react@19.3.0)(effect@4.0.4)(hono@4.11.4)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))(ws@8.22.0):
+  alchemy@2.0.0-beta.82(@effect/platform-bun@4.0.4(effect@4.0.4))(@effect/platform-node@4.0.4(effect@4.0.4)(redis@6.2.1))(@effect/vitest@4.0.4(effect@4.0.4)(vitest@5.0.3))(@types/node@26.6.5)(@types/react@19.3.0)(effect@4.0.4)(hono@4.11.4)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))(ws@8.22.0):
     dependencies:
-      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.82(@distilled.cloud/cloudflare@1.0.0-rc.15(effect@4.0.4))(@effect/platform-bun@4.0.1(effect@4.0.4))(@effect/platform-node@4.0.1(effect@4.0.4)(redis@6.2.1))(@types/node@26.6.4)(effect@4.0.4)(rolldown@1.2.5)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
+      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.82(@distilled.cloud/cloudflare@1.0.0-rc.15(effect@4.0.4))(@effect/platform-bun@4.0.4(effect@4.0.4))(@effect/platform-node@4.0.4(effect@4.0.4)(redis@6.2.1))(@types/node@26.6.5)(effect@4.0.4)(rolldown@1.2.5)(typescript@7.0.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
       '@alchemy.run/floci': 2.0.0-beta.82(effect@4.0.4)
       '@alchemy.run/node-utils': 2.0.0-beta.82
       '@alchemy.run/sigil': 0.1.0-alpha.1(@types/react@19.3.0)
@@ -12258,10 +12168,10 @@ snapshots:
       tinyglobby: 0.2.17
       yaml: 2.9.0
     optionalDependencies:
-      '@effect/platform-bun': 4.0.1(effect@4.0.4)
-      '@effect/platform-node': 4.0.1(effect@4.0.4)(redis@6.2.1)
-      '@effect/vitest': 4.0.1(effect@4.0.4)(vitest@5.0.3)
-      vite: 8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
+      '@effect/platform-bun': 4.0.4(effect@4.0.4)
+      '@effect/platform-node': 4.0.4(effect@4.0.4)(redis@6.2.1)
+      '@effect/vitest': 4.0.4(effect@4.0.4)(vitest@5.0.3)
+      vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
       ws: 8.22.0
     transitivePeerDependencies:
       - '@types/node'
@@ -16507,7 +16417,7 @@ snapshots:
       '@img/sharp-win32-ia32': 0.33.5
       '@img/sharp-win32-x64': 0.33.5
 
-  sharp@0.35.5(@types/node@26.6.4):
+  sharp@0.35.5(@types/node@26.6.5):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -16538,7 +16448,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.5
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
-      '@types/node': 26.6.4
+      '@types/node': 26.6.5
 
   shebang-command@1.2.0:
     dependencies:
@@ -17068,33 +16978,6 @@ snapshots:
     optionalDependencies:
       typescript: 7.0.2
 
-  tsdown@0.23.0(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1):
-    dependencies:
-      cac: 7.1.0
-      defu: 6.1.7
-      empathic: 2.1.0
-      hookable: 6.1.2
-      import-without-cache: 0.4.1
-      obug: 2.1.4
-      picomatch: 4.0.7
-      rolldown: 1.2.13
-      rolldown-plugin-dts: 0.28.8(rolldown@1.2.13)(typescript@7.0.2)
-      tinyexec: 1.3.1
-      tinyglobby: 0.2.17
-      tree-kill: 1.2.2
-      unconfig-core: 7.5.0
-      verkit: 0.4.1
-    optionalDependencies:
-      tsx: 4.23.15
-      typescript: 7.0.2
-      unrun: 0.3.1
-    transitivePeerDependencies:
-      - '@typescript/native-preview'
-      - '@volar/typescript'
-      - '@vue/language-core'
-      - oxc-resolver
-      - vue-tsc
-
   tsdown@0.23.1(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1):
     dependencies:
       cac: 7.1.0
@@ -17387,8 +17270,6 @@ snapshots:
 
   vary@1.1.2: {}
 
-  verkit@0.4.1: {}
-
   verkit@0.5.0: {}
 
   vfile-location@5.0.3:
@@ -17478,21 +17359,6 @@ snapshots:
       - supports-color
       - typescript
 
-  vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0):
-    dependencies:
-      lightningcss: 1.33.0
-      picomatch: 4.0.7
-      postcss: 8.5.29
-      rolldown: 1.2.13
-      tinyglobby: 0.2.17
-    optionalDependencies:
-      '@types/node': 26.6.4
-      esbuild: 0.28.2
-      fsevents: 2.3.3
-      jiti: 1.21.7
-      tsx: 4.23.15
-      yaml: 2.9.0
-
   vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
@@ -17532,30 +17398,6 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.6.5
-      '@vitest/browser-preview': 4.1.11(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1)(yaml@2.9.0))(vitest@4.1.11)
-      '@vitest/coverage-v8': 5.0.3(vitest@5.0.3)
-      happy-dom: 20.14.5
-    transitivePeerDependencies:
-      - msw
-
-  vitest@5.0.3(@types/node@26.6.4)(@vitest/browser-preview@4.1.11)(@vitest/coverage-v8@5.0.3)(happy-dom@20.14.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)):
-    dependencies:
-      '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.3(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0))
-      chai: 6.2.2
-      es-module-lexer: 2.3.2
-      expect-type: 1.4.0
-      magic-string: 1.3.1
-      obug: 2.1.4
-      picomatch: 4.0.7
-      std-env: 4.2.0
-      tinybench: 6.1.4
-      tinyexec: 1.3.1
-      tinyglobby: 0.2.17
-      vite: 8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(yaml@2.9.0)
-      why-is-node-running: 3.2.1
-    optionalDependencies:
-      '@types/node': 26.6.4
       '@vitest/browser-preview': 4.1.11(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.6.5)(esbuild@0.28.2)(jiti@1.21.7)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.3.1)(yaml@2.9.0))(vitest@4.1.11)
       '@vitest/coverage-v8': 5.0.3(vitest@5.0.3)
       happy-dom: 20.14.5
