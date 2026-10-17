@@ -1014,6 +1014,33 @@ layer(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer))(
     );
 
     it.effect(
+      "keeps a root HTTP mount valid in the generated test app",
+      () =>
+        Effect.gen(function* () {
+          const project = yield* declarationProject;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* fs.remove(path.join(project.root, "confect/http.ts"));
+          yield* project.write(
+            "components/counter/convex/http.ts",
+            "export default {};\n",
+          );
+          yield* project.write(
+            "confect/app.ts",
+            (yield* project.read("confect/app.ts")).replace(
+              'httpPrefix: "/first"',
+              'httpPrefix: "/"',
+            ),
+          );
+          yield* project.run;
+          expect(
+            yield* project.read("confect/_generated/testing.ts"),
+          ).toContain('httpPrefix: "/"');
+        }).pipe(Effect.scoped),
+      { timeout: 30000 },
+    );
+
+    it.effect(
       "changes the manifest digest when a declaration input changes",
       () =>
         Effect.gen(function* () {

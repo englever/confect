@@ -1017,7 +1017,10 @@ const generateTesting = Effect.fnUntraced(function* (app: App.Any) {
       const httpPrefix =
         parentHttpPrefix === undefined || localPrefix === undefined
           ? undefined
-          : `${parentHttpPrefix}${localPrefix}`.replace(/\/+$/, "");
+          : `${parentHttpPrefix.replace(/\/+$/, "")}${localPrefix}`.replace(
+              /\/+$/,
+              "",
+            ) || "/";
       if (
         httpPrefix !== undefined &&
         ((yield* fs.exists(path.join(resolved, "http.ts"))) ||
