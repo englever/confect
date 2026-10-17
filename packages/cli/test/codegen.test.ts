@@ -984,7 +984,7 @@ layer(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer))(
       () =>
         Effect.gen(function* () {
           const project = yield* declarationProject;
-          expect((yield* project.run).anyWritesHappened).toBe(true);
+          expect(yield* Project.writtenFiles(project.run)).not.toEqual([]);
           expect(yield* project.read("convex/convex.config.ts")).toBe(
             expectedConvexConfig,
           );
@@ -999,7 +999,7 @@ layer(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer))(
           expect(
             yield* project.read("confect/_generated/components.ts"),
           ).toContain('"first": import(');
-          expect((yield* project.run).anyWritesHappened).toBe(false);
+          expect(yield* Project.writtenFiles(project.run)).toEqual([]);
         }).pipe(Effect.scoped),
       { timeout: 30000 },
     );

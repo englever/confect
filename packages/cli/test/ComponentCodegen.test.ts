@@ -40,8 +40,9 @@ it.effect(
       const dirs = DirectoryOptions.layer({
         componentDir: Option.some(`${directory}/convex`),
       });
-      const first = yield* codegenHandler.pipe(Effect.provide(dirs));
-      expect(first.anyWritesHappened).toBe(true);
+      expect(
+        yield* Project.writtenFiles(codegenHandler.pipe(Effect.provide(dirs))),
+      ).not.toEqual([]);
       const id = yield* fs.readFileString(
         `${directory}/confect/_generated/id.ts`,
       );
@@ -70,8 +71,8 @@ it.effect(
       expect(contract).toContain("Component.make(spec, scope,");
       expect(contract).not.toContain("impl");
       expect(
-        (yield* codegenHandler.pipe(Effect.provide(dirs))).anyWritesHappened,
-      ).toBe(false);
+        yield* Project.writtenFiles(codegenHandler.pipe(Effect.provide(dirs))),
+      ).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -100,8 +101,8 @@ export default Table.make(() => Schema.Struct({ name: Schema.String }));
       expect(schema).toContain("typeof $target");
       expect(schema).toContain("}, $target)");
       expect(
-        (yield* codegenHandler.pipe(Effect.provide(dirs))).anyWritesHappened,
-      ).toBe(false);
+        yield* Project.writtenFiles(codegenHandler.pipe(Effect.provide(dirs))),
+      ).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -141,8 +142,8 @@ export default Table.make(() => Schema.Struct({ id: Component.id(child, "counter
         ),
       ).toContain('ComponentApi<"child">');
       expect(
-        (yield* codegenHandler.pipe(Effect.provide(dirs))).anyWritesHappened,
-      ).toBe(false);
+        yield* Project.writtenFiles(codegenHandler.pipe(Effect.provide(dirs))),
+      ).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -230,7 +231,7 @@ it.effect(
         `import { GroupSpec } from "@confect/core";
 import { scope } from "./_generated/id";
 export const componentScope = scope;
-export default GroupSpec.make().addGroup(GroupSpec.makeNodeAt("worker"));
+export default GroupSpec.addGroupsAt(GroupSpec.make(), { worker: GroupSpec.makeNode() });
 `,
       );
       const result = yield* Effect.result(
