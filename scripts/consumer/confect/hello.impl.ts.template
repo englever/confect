@@ -1,6 +1,8 @@
 import { Callback, FunctionImpl, GroupImpl } from "@confect/server";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import env from "./env";
 import {
   OnCheckedArgs,
   OnResult,
@@ -10,6 +12,9 @@ import refs from "./_generated/refs";
 import { MutationRunner, QueryRunner } from "./_generated/services";
 import { counter } from "./component";
 import hello from "./hello.spec";
+const readMarker = FunctionImpl.make(schema, hello, "readMarker", () =>
+  Effect.gen(function* () { return Option.getOrElse(yield* env.INSTALL_MARKER, () => "unset"); }).pipe(Effect.orDie),
+);
 const greet = FunctionImpl.make(schema, hello, "greet", () =>
   Effect.succeed("hello from fork"),
 );
@@ -47,6 +52,6 @@ const checkArgs = FunctionImpl.make(schema, hello, "checkArgs", () =>
   ),
 );
 export default GroupImpl.make(schema, hello).pipe(
-  Layer.provide([greet, increment, onResult, wrongArgs, notify, checkArgs]),
+  Layer.provide([readMarker, greet, increment, onResult, wrongArgs, notify, checkArgs]),
   GroupImpl.finalize,
 );

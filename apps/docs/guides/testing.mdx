@@ -49,6 +49,20 @@ export const layer = TestConfect_.layer(
 );
 ```
 
+For a [declared backend](/server/backend-declaration), codegen also writes a test-only registry. Pass the generated app to register the app's components and their nested installations automatically. Mount names and HTTP prefixes come from the declaration; tests need no `register` callback or `httpMounts` list.
+
+```ts
+import { TestConfect } from "@confect/test";
+import app from "../confect/_generated/testing";
+
+export const Test = TestConfect.TestConfect<typeof app.schema>();
+export const layer = TestConfect.layer(app);
+```
+
+The generated registry imports each component's deploy schema from its resolved Convex directory and supplies lazy module loaders. Keep it in test imports only. It is separate from the runtime schema and function wrappers, so production functions retain their per-group bundles. Regenerate it when adding functions or changing component installations. The schema-based constructor above remains available for hand-written component kits and custom HTTP router loaders.
+
+You can also pass an authored `App` value with its registry as `TestConfect.layer(app, registry)`. This reads mount names and HTTP prefixes from that value. Prefer the generated one-argument form when a component definition has nested `use` calls; codegen evaluates those definitions with Convex's config loader. The test layer retains the shared process-env and module-cache limitations described below.
+
 Every time the `TestConfect` layer is constructed, a new test database is created. If you want a clean database for each test, provide the layer on a per-test basis (as shown below). If you want to share state across tests in a describe block, you can provide the layer at a higher scope instead.
 
 ## Writing tests

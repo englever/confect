@@ -1,4 +1,4 @@
-import { Ref } from "@confect/core";
+import { App, Ref } from "@confect/core";
 import type { DatabaseSchema, DataModel } from "@confect/server";
 import { RegisteredConvexFunction } from "@confect/server";
 import type {
@@ -300,7 +300,113 @@ class TestConfectImpl<
     );
 }
 
-export const layer = <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
+/**
+ * Codegen's test-only schema and module registry.
+ */
+export type Registry<DatabaseSchema_ extends DatabaseSchema.AnyWithProps> = {
+  readonly schema: DatabaseSchema_;
+  readonly convexSchema: SchemaDefinition<GenericSchema, true>;
+  readonly modules: Record<string, () => Promise<any>>;
+  readonly components: Readonly<
+    Record<
+      string,
+      {
+        readonly schema: SchemaDefinition<GenericSchema, boolean>;
+        readonly modules: Record<string, () => Promise<any>>;
+      }
+    >
+  >;
+};
+
+/**
+ * The declared app's generated, test-only representation.
+ */
+export type DeclaredApp<DatabaseSchema_ extends DatabaseSchema.AnyWithProps> =
+  Registry<DatabaseSchema_> & {
+    readonly httpMounts: ReadonlyArray<HttpMount>;
+  };
+
+/**
+ * Build a fresh test backend from a declaration and its generated
+ * `confect/_generated/testing` registry, without restating component mounts.
+ */
+export function layer<DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
+  app: DeclaredApp<DatabaseSchema_>,
+): Layer.Layer<TestConfect<DatabaseSchema_>>;
+export function layer<
+  A extends App.Any,
+  DatabaseSchema_ extends DatabaseSchema.AnyWithProps,
+>(
+  app: A,
+  registry: Registry<DatabaseSchema_> & {
+    readonly components: Readonly<
+      Record<
+        keyof NoInfer<A>["mounts"],
+        Registry<DatabaseSchema_>["components"][string]
+      >
+    >;
+  },
+): Layer.Layer<TestConfect<DatabaseSchema_>>;
+export function layer<DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
+  databaseSchema: DatabaseSchema_,
+  convexSchemaDefinition: SchemaDefinition<GenericSchema, true>,
+  modules: Record<string, () => Promise<any>>,
+  options?: LayerOptions,
+): Layer.Layer<TestConfect<DatabaseSchema_>>;
+export function layer<DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
+  appOrSchema: App.Any | DeclaredApp<DatabaseSchema_> | DatabaseSchema_,
+  registryOrSchema?:
+    | Registry<DatabaseSchema_>
+    | SchemaDefinition<GenericSchema, true>,
+  modules?: Record<string, () => Promise<any>>,
+  options: LayerOptions = {},
+): Layer.Layer<TestConfect<DatabaseSchema_>> {
+  if (App.isApp(appOrSchema)) {
+    const registry = registryOrSchema as Registry<DatabaseSchema_>;
+    const mounts = App.mounts(appOrSchema);
+    return schemaLayer(
+      registry.schema,
+      registry.convexSchema,
+      registry.modules,
+      {
+        httpMounts: mounts.flatMap(({ name, httpPrefix }) =>
+          httpPrefix === undefined ? [] : [{ componentPath: name, httpPrefix }],
+        ),
+        register: (registerComponent) => {
+          for (const [name, component] of Object.entries(registry.components)) {
+            if (
+              mounts.some(
+                (mount) =>
+                  name === mount.name || name.startsWith(`${mount.name}/`),
+              )
+            ) {
+              registerComponent(name, component.schema, component.modules);
+            }
+          }
+        },
+      },
+    );
+  }
+  if ("httpMounts" in appOrSchema) {
+    const app = appOrSchema as DeclaredApp<DatabaseSchema_>;
+    return schemaLayer(app.schema, app.convexSchema, app.modules, {
+      httpMounts: app.httpMounts,
+      register: (registerComponent) => {
+        for (const [name, component] of Object.entries(app.components)) {
+          registerComponent(name, component.schema, component.modules);
+        }
+      },
+    });
+  }
+  return schemaLayer(
+    appOrSchema as DatabaseSchema_,
+    registryOrSchema as SchemaDefinition<GenericSchema, true>,
+    modules!,
+    options,
+  );
+}
+
+const schemaLayer = <DatabaseSchema_ extends DatabaseSchema.AnyWithProps>(
   databaseSchema: DatabaseSchema_,
   convexSchemaDefinition: SchemaDefinition<GenericSchema, true>,
   modules: Record<string, () => Promise<any>>,

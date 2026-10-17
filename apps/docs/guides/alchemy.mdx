@@ -129,6 +129,27 @@ const code =
   });
 ```
 
+For a [declared backend](/server/backend-declaration), pass its generated manifest to type the env input directly from `confect/env.ts`:
+
+```ts
+import manifest from "../backend/confect/_generated/manifest";
+
+const backend =
+  yield *
+  Confect.Backend("Backend", {
+    deployment,
+    deployKey,
+    manifest,
+    env: {
+      EMAIL_FROM: "noreply@example.edu",
+      RESEND_API_KEY: yield * Config.Redacted("RESEND_API_KEY"),
+      EMAIL_TRANSPORT: "resend",
+    },
+  });
+```
+
+Required keys must be present. Unknown keys, plain strings for secret fields, and values outside a field's declared literals fail to typecheck. Each value also accepts an Alchemy `Input`. Optional fields can be omitted; `env` itself can be omitted when all fields are optional. Without `manifest`, the existing untyped env record remains available. Infra imports only the generated manifest, never backend implementation code.
+
 You can also declare `Convex.EnvironmentVariables` separately. A standalone code resource must depend on its outputs if those variables need to be applied first; declaring resources in source order alone does not establish a dependency. `Confect.Backend` handles this ordering for its `env` option.
 
 ## Develop locally

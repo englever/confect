@@ -999,6 +999,15 @@ layer(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer))(
           expect(
             yield* project.read("confect/_generated/components.ts"),
           ).toContain('"first": import(');
+          const testing = yield* project.read("confect/_generated/testing.ts");
+          expect(testing).toContain('import schema from "./schema"');
+          expect(testing).toContain('"first": component0');
+          expect(testing).toContain('"second": component0');
+          expect(testing).toContain("components/counter/convex/schema");
+          expect(testing).toContain("() => import(");
+          expect(
+            yield* project.read("confect/_generated/schema.ts"),
+          ).not.toContain("testing");
           expect(yield* Project.writtenFiles(project.run)).toEqual([]);
         }).pipe(Effect.scoped),
       { timeout: 30000 },

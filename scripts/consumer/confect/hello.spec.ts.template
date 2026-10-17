@@ -4,6 +4,7 @@ const wrongArgs: Record<string, typeof Schema.FiniteFromString> = {
   other: Schema.FiniteFromString,
 };
 export default GroupSpec.make()
+  .addFunction(FunctionSpec.publicQuery({ name: "readMarker", returns: () => Schema.String }))
   .addFunction(
     FunctionSpec.publicQuery({ name: "greet", returns: () => Schema.String }),
   )

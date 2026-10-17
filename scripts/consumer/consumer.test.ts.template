@@ -1,28 +1,14 @@
 import { TestConfect } from "@confect/test";
 import * as Effect from "effect/Effect";
 import { expect, test } from "vitest";
-import componentSchema from "./components/counter/confect/_generated/convexSchema";
+import registry from "./confect/_generated/testing";
 import auth from "./convex/auth.config";
-import convexSchema from "./confect/_generated/convexSchema";
 import manifest from "./confect/_generated/manifest";
 import refs from "./confect/_generated/refs";
 import databaseSchema from "./confect/_generated/schema";
 
 const Test = TestConfect.TestConfect<typeof databaseSchema>();
-const layer = TestConfect.layer(
-  databaseSchema,
-  convexSchema,
-  import.meta.glob("./convex/**/*.ts"),
-  {
-    register: (registerComponent) =>
-      registerComponent(
-        "counter",
-        componentSchema,
-        import.meta.glob("./components/counter/convex/**/*.ts"),
-      ),
-    httpMounts: [{ componentPath: "counter", httpPrefix: "/counter" }],
-  },
-);
+const layer = TestConfect.layer(registry);
 
 test("installed fork executes a generated query with TestConfect", () =>
   Effect.runPromise(
