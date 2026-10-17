@@ -1,3 +1,5 @@
+This repository is a fork of rjdellecese/confect; [FORK.md](FORK.md) holds the fork's rules.
+
 # Capy repository instructions
 
 - Never read `.env.local` files.
@@ -89,8 +91,6 @@ Tests import the public package specifiers (e.g. `@confect/core/Ref`); `vitest.s
 Run `pnpm test` to run all suites at once, or target a single package with `vitest run --project @confect/<pkg>` (e.g. `vitest run --project @confect/core`). Run tests with `vitest run`, not `vp test`—the Vite+ test runner mishandles type-only test files. The server's Convex integration suites have dedicated scripts: `pnpm test:server:mock-backend` and `pnpm test:server:local-backend`.
 
 ## Versioning and Publishing
-
-Update the hand-maintained `CHANGES.md` in every fork PR with what changed, why, the fork PR number, changeset coverage, and upstream intent or proposal.
 
 All @confect packages are in a fixed version group via Changesets, meaning they are always versioned and released together. Use `pnpm changeset` to create a changeset before merging a PR with user-facing changes.
 
