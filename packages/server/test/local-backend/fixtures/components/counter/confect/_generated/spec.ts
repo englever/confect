@@ -7,6 +7,10 @@ const spec: Spec.Spec<{
   readonly authoring: GroupSpec.NamedAt<typeof authoring, "authoring">;
   readonly counter: GroupSpec.NamedAt<typeof counter, "counter">;
   readonly deliveries: GroupSpec.NamedAt<typeof deliveries, "deliveries">;
-}> = (Spec.make() as any).addAt("authoring", (authoring as any)).addAt("counter", (counter as any)).addAt("deliveries", (deliveries as any));
+}> = Spec.fromGroups({
+  ["authoring"]: authoring,
+  ["counter"]: counter,
+  ["deliveries"]: deliveries,
+}) as typeof spec;
 
 export default spec;

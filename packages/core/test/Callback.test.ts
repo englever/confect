@@ -14,7 +14,7 @@ import * as GroupSpec from "@confect/core/GroupSpec";
 import * as Ref from "@confect/core/Ref";
 import * as Refs from "@confect/core/Refs";
 import * as SchemaToValidator from "@confect/core/SchemaToValidator";
-import * as Spec from "@confect/core/Spec";
+import * as TestSpec from "./TestSpec";
 
 class EventRejected extends Schema.TaggedError<EventRejected>()(
   "EventRejected",
@@ -44,15 +44,15 @@ describe("contract", () => {
     const error = vi.fn(() => EventRejected);
     const Lazy = Callback.action("lazy/onEvent", { args, returns, error });
 
-    const spec = Spec.make().add(
-      GroupSpec.makeAt("deliveries").addFunction(
+    const spec = TestSpec.fromGroups({
+      deliveries: GroupSpec.make().addFunction(
         FunctionSpec.publicMutation({
           name: "send",
           args: () => ({ onEvent: Callback.handle(Lazy) }),
           returns: () => Schema.Null,
         }),
       ),
-    );
+    });
     const refs = Refs.make(spec);
     const handle = Callback.handle(Lazy);
 

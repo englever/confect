@@ -1,5 +1,15 @@
-import { RegisteredConvexFunction, RegisteredFunctions } from "@confect/server";
+import { ConvexFunctionDefinitions, RegisteredConvexFunction, type RegisteredFunctions } from "@confect/server";
 import databaseSchema from "../schema";
-import parent from "../../parent.impl";
+import groupLayer from "../../parent.impl";
 
-export default RegisteredFunctions.buildForGroup<typeof import("../../parent.spec")["default"]>(databaseSchema, parent, RegisteredConvexFunction.make);
+const forward = <Ctx, Args, Returns>(handler: (ctx: Ctx, args: Args) => Promise<Returns>) => (ctx: Ctx, args: Args) => handler(ctx, args);
+
+const definitions = ConvexFunctionDefinitions.buildForGroup<typeof import("../../parent.spec")["default"]>(databaseSchema, groupLayer);
+
+export default {
+["create"]: RegisteredConvexFunction.register({ ...definitions["create"], handler: forward(definitions["create"].handler) }),
+["list"]: RegisteredConvexFunction.register({ ...definitions["list"], handler: forward(definitions["list"].handler) }),
+["deepCreate"]: RegisteredConvexFunction.register({ ...definitions["deepCreate"], handler: forward(definitions["deepCreate"].handler) }),
+["deepList"]: RegisteredConvexFunction.register({ ...definitions["deepList"], handler: forward(definitions["deepList"].handler) }),
+["deepLocation"]: RegisteredConvexFunction.register({ ...definitions["deepLocation"], handler: forward(definitions["deepLocation"].handler) }),
+} as RegisteredFunctions.RegisteredFunctionsForGroupSpec<typeof import("../../parent.spec")["default"]>;

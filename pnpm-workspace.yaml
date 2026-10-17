@@ -42,11 +42,17 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/stripe@1.0.0-rc.15"
   - "@distilled.cloud/turso@1.0.0-rc.15"
   - "@distilled.cloud/zerossl@1.0.0-rc.15"
+  - "@effect/ai-openai-compat@4.0.4"
+  - "@effect/ai-openrouter@4.0.4"
+  - "@effect/platform-node-shared@4.0.4"
+  - "@effect/platform-node@4.0.4"
+  - "@effect/vitest@4.0.4"
   - alchemy@2.0.0-beta.82
+  - effect@4.0.4
 
 overrides:
   convex: 1.46.0
-  effect: 4.0.1
+  effect: 4.0.4
   happy-dom: 20.14.5
   react: 19.3.0
   react-dom: 19.3.0

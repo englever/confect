@@ -1,5 +1,14 @@
-import { RegisteredConvexFunction, RegisteredFunctions } from "@confect/server";
+import { ConvexFunctionDefinitions, RegisteredConvexFunction, type RegisteredFunctions } from "@confect/server";
 import databaseSchema from "../../schema";
-import componentAuthoring from "../../../groups/componentAuthoring.impl";
+import groupLayer from "../../../groups/componentAuthoring.impl";
 
-export default RegisteredFunctions.buildForGroup<typeof import("../../../groups/componentAuthoring.spec")["default"]>(databaseSchema, componentAuthoring, RegisteredConvexFunction.make);
+const forward = <Ctx, Args, Returns>(handler: (ctx: Ctx, args: Args) => Promise<Returns>) => (ctx: Ctx, args: Args) => handler(ctx, args);
+
+const definitions = ConvexFunctionDefinitions.buildForGroup<typeof import("../../../groups/componentAuthoring.spec")["default"]>(databaseSchema, groupLayer);
+
+export default {
+["save"]: RegisteredConvexFunction.register({ ...definitions["save"], handler: forward(definitions["save"].handler) }),
+["read"]: RegisteredConvexFunction.register({ ...definitions["read"], handler: forward(definitions["read"].handler) }),
+["probe"]: RegisteredConvexFunction.register({ ...definitions["probe"], handler: forward(definitions["probe"].handler) }),
+["render"]: RegisteredConvexFunction.register({ ...definitions["render"], handler: forward(definitions["render"].handler) }),
+} as RegisteredFunctions.RegisteredFunctionsForGroupSpec<typeof import("../../../groups/componentAuthoring.spec")["default"]>;

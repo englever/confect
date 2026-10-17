@@ -9,7 +9,7 @@ import {
   consumerManifest,
   installCommand,
   writeConsumer,
-} from "./consumerFixture";
+} from "./forkConsumer";
 
 test("pins all four public aliases to the requested fork build", () => {
   expect(Result.getOrThrow(consumerManifest("10.2.0-englever.7"))).toEqual({
@@ -23,13 +23,13 @@ test("pins all four public aliases to the requested fork build", () => {
       "@confect/cli": "npm:@englever/confect-cli@10.2.0-englever.7",
       convex: "1.46.0",
       "convex-test": "0.0.60",
-      effect: "4.0.1",
-      "@effect/platform-node": "4.0.1",
+      effect: "4.0.4",
+      "@effect/platform-node": "4.0.4",
     },
     devDependencies: {
-      "@types/node": "26.6.4",
+      "@types/node": "26.6.5",
       typescript: "7.0.2",
-      vite: "8.3.2",
+      vite: "8.3.4",
       vitest: "5.0.3",
     },
     packageManager: "pnpm@12.8.1",
@@ -92,10 +92,10 @@ test("writes a standalone consumer with fresh-build exclusions and aligned peers
   - "@englever/confect-cli@10.2.0-englever.0"
 
 overrides:
-  effect: 4.0.1
+  effect: 4.0.4
   convex: 1.46.0
-  "@effect/platform-node": 4.0.1
-  "@effect/platform-node-shared": 4.0.1
+  "@effect/platform-node": 4.0.4
+  "@effect/platform-node-shared": 4.0.4
 allowBuilds:
   esbuild: false
 `);

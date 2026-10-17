@@ -3,6 +3,8 @@ import parent from "../parent.spec";
 
 const spec: Spec.Spec<{
   readonly parent: GroupSpec.NamedAt<typeof parent, "parent">;
-}> = (Spec.make() as any).addAt("parent", (parent as any));
+}> = Spec.fromGroups({
+  ["parent"]: parent,
+}) as typeof spec;
 
 export default spec;

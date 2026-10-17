@@ -4,11 +4,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Result from "effect/Result";
 import {
-  checkRebase,
+  checkMerge,
   inspectRelease,
-  planRebase,
+  planMerge,
   selectReleaseTag,
-} from "./rebaseOntoRelease";
+} from "./mergeUpstreamRelease";
 
 test("selects the newest stable core release numerically", () => {
   expect(
@@ -32,30 +32,30 @@ test("reports when no stable core release is available", () => {
   );
 });
 
-test("keeps fork patches when their upstream base is already the selected release", () => {
+test("merges only a release the fork does not already contain", () => {
   expect(
-    planRebase({
+    planMerge({
       tag: "@confect/core@10.2.0",
       target: "release",
       base: "release",
       forkHead: "fork-patch",
     }),
   ).toEqual({
-    _tag: "AlreadyCurrent",
+    _tag: "AlreadyMerged",
     tag: "@confect/core@10.2.0",
     target: "release",
     base: "release",
     forkHead: "fork-patch",
   });
   expect(
-    planRebase({
+    planMerge({
       tag: "@confect/core@10.3.0",
       target: "new-release",
       base: "old-release",
       forkHead: "fork-patch",
     }),
   ).toEqual({
-    _tag: "Rebase",
+    _tag: "Merge",
     tag: "@confect/core@10.3.0",
     target: "new-release",
     base: "old-release",
@@ -67,7 +67,7 @@ const makeHistory = (conflict = false) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const temporary = yield* fs.makeTempDirectoryScoped({
-      prefix: "confect-rebase-history-",
+      prefix: "confect-merge-history-",
     });
     const root = yield* fs.realPath(temporary);
     const git = (args: Array<string>) => {
@@ -83,7 +83,6 @@ const makeHistory = (conflict = false) =>
     git(["config", "user.name", "Confect test"]);
     git(["config", "user.email", "confect@example.invalid"]);
     git(["config", "commit.gpgsign", "false"]);
-    git(["config", "rebase.updateRefs", "true"]);
     yield* fs.writeFileString(`${root}/shared.txt`, "base\n");
     git(["add", "."]);
     git(["commit", "-m", "Release base"]);
@@ -106,12 +105,17 @@ const makeHistory = (conflict = false) =>
     return { root, git, base, target, forkHead };
   });
 
-test("computes the fork base from git history instead of the fork tip", () =>
+const worktrees = (git: (args: Array<string>) => string) =>
+  git(["worktree", "list", "--porcelain"])
+    .split("\n")
+    .filter((line) => line.startsWith("worktree "));
+
+test("computes the merge base with the release from git history", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const { root, base, target, forkHead } = yield* makeHistory();
-      expect(yield* inspectRelease(root, "fork", "upstream")).toEqual({
-        _tag: "Rebase",
+      expect(yield* inspectRelease(root, "fork")).toEqual({
+        _tag: "Merge",
         tag: "@confect/core@10.3.0",
         base,
         target,
@@ -121,7 +125,7 @@ test("computes the fork base from git history instead of the fork tip", () =>
   ));
 
 test.each([false, true])(
-  "checks a real scratch rebase and preserves the fork, conflict=%s",
+  "dry-runs a real scratch merge and preserves the fork, conflict=%s",
   (conflict) =>
     Effect.runPromise(
       Effect.gen(function* () {
@@ -129,12 +133,10 @@ test.each([false, true])(
         const fs = yield* FileSystem.FileSystem;
         yield* fs.writeFileString(`${root}/shared.txt`, "uncommitted work\n");
         yield* fs.writeFileString(`${root}/untracked.txt`, "untracked work\n");
-        const result = yield* checkRebase(root, "fork", "upstream").pipe(
-          Effect.result,
-        );
+        const result = yield* checkMerge(root, "fork").pipe(Effect.result);
         if (conflict) {
           expect(Result.isFailure(result) && result.failure).toMatchObject({
-            _tag: "RebaseConflict",
+            _tag: "MergeConflict",
             tag: "@confect/core@10.3.0",
             files: ["shared.txt"],
           });
@@ -152,60 +154,50 @@ test.each([false, true])(
         expect(git(["status", "--porcelain"])).toBe(
           "M shared.txt\n?? untracked.txt",
         );
-        expect(git(["branch", "--list", "englever/rebase-check-*"])).toBe("");
         expect(
-          git(["worktree", "list", "--porcelain"])
+          git(["branch", "--list"])
             .split("\n")
-            .filter((line) => line.startsWith("worktree ")),
-        ).toEqual([`worktree ${root}`]);
+            .map((b) => b.trim()),
+        ).toEqual(["fork", "* upstream"]);
+        expect(worktrees(git)).toEqual([`worktree ${root}`]);
       }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
     ),
 );
 
-test("plans the specified release rebase even when the fork base is newer than its tag", () =>
+test("treats a release merged into the fork as current, with fork patches after it", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const { root, git, base, target } = yield* makeHistory();
-      git(["tag", "-d", "@confect/core@10.3.0"]);
-      git(["branch", "-f", "fork", "upstream"]);
+      const { root, git } = yield* makeHistory();
       git(["switch", "fork"]);
-      git([
-        "commit",
-        "--allow-empty",
-        "-m",
-        "Fork after untagged upstream commit",
-      ]);
+      git(["merge", "--no-edit", "@confect/core@10.3.0"]);
+      git(["commit", "--allow-empty", "-m", "Fork patch after the merge"]);
       const forkHead = git(["rev-parse", "fork"]);
       git(["switch", "upstream"]);
-      expect(yield* inspectRelease(root, "fork", "upstream")).toEqual({
-        _tag: "Rebase",
-        tag: "@confect/core@10.2.0",
-        target: base,
-        base: target,
-        forkHead,
-      });
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
-  ));
-
-test("succeeds on real history already based on the selected tag with fork patches", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const { root, git, forkHead } = yield* makeHistory();
-      git(["tag", "-d", "@confect/core@10.3.0"]);
-      expect(yield* checkRebase(root, "fork", "upstream")).toMatchObject({
-        _tag: "AlreadyCurrent",
-        tag: "@confect/core@10.2.0",
+      expect(yield* checkMerge(root, "fork")).toMatchObject({
+        _tag: "AlreadyMerged",
+        tag: "@confect/core@10.3.0",
       });
       expect(git(["rev-parse", "fork"])).toBe(forkHead);
-      expect(
-        git(["worktree", "list", "--porcelain"])
-          .split("\n")
-          .filter((line) => line.startsWith("worktree ")),
-      ).toEqual([`worktree ${root}`]);
+      expect(worktrees(git)).toEqual([`worktree ${root}`]);
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   ));
 
-test("rebases onto the stable tag while upstream main has a conflicting later commit", () =>
+test("treats the newest tag as current when the fork merged untagged upstream commits past it", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const { root, git, target } = yield* makeHistory();
+      git(["tag", "-d", "@confect/core@10.3.0"]);
+      git(["switch", "fork"]);
+      git(["merge", "--no-edit", target]);
+      git(["switch", "upstream"]);
+      expect(yield* inspectRelease(root, "fork")).toMatchObject({
+        _tag: "AlreadyMerged",
+        tag: "@confect/core@10.2.0",
+      });
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+  ));
+
+test("merges the stable tag while upstream main has a conflicting later commit", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -217,8 +209,8 @@ test("rebases onto the stable tag while upstream main has a conflicting later co
       git(["add", "."]);
       git(["commit", "-m", "Unreleased conflicting change"]);
       const upstreamHead = git(["rev-parse", "upstream"]);
-      expect(yield* checkRebase(root, "fork", "upstream")).toMatchObject({
-        _tag: "Rebase",
+      expect(yield* checkMerge(root, "fork")).toMatchObject({
+        _tag: "Merge",
         tag: "@confect/core@10.3.0",
       });
       expect(git(["rev-parse", "fork"])).toBe(forkHead);

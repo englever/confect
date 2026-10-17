@@ -8,6 +8,7 @@ export * as Auth from "./Auth";
 export * as BlobNotFoundError from "./BlobNotFoundError";
 export * as Callback from "./Callback";
 export * as ConvexConfigProvider from "./ConvexConfigProvider";
+export * as ConvexFunctionDefinitions from "./ConvexFunctionDefinitions";
 export * as ConvexLogger from "./ConvexLogger";
 export * as CronJob from "./CronJob";
 export * as CronJobs from "./CronJobs";

@@ -37,11 +37,11 @@ interface ReleaseHistory {
   readonly forkHead: string;
 }
 
-export const planRebase = (
+export const planMerge = (
   history: ReleaseHistory,
-): ReleaseHistory & { readonly _tag: "AlreadyCurrent" | "Rebase" } => ({
+): ReleaseHistory & { readonly _tag: "AlreadyMerged" | "Merge" } => ({
   ...history,
-  _tag: history.base === history.target ? "AlreadyCurrent" : "Rebase",
+  _tag: history.base === history.target ? "AlreadyMerged" : "Merge",
 });
 
 class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()(
@@ -54,14 +54,14 @@ class GitCommandFailed extends Schema.TaggedError<GitCommandFailed>()(
   },
 ) {}
 
-class RebaseFailed extends Schema.TaggedError<RebaseFailed>()("RebaseFailed", {
+class MergeFailed extends Schema.TaggedError<MergeFailed>()("MergeFailed", {
   tag: Schema.String,
   base: Schema.String,
   output: Schema.String,
 }) {}
 
-class RebaseConflict extends Schema.TaggedError<RebaseConflict>()(
-  "RebaseConflict",
+class MergeConflict extends Schema.TaggedError<MergeConflict>()(
+  "MergeConflict",
   {
     tag: Schema.String,
     base: Schema.String,
@@ -70,7 +70,7 @@ class RebaseConflict extends Schema.TaggedError<RebaseConflict>()(
   },
 ) {}
 
-const gitResult = Effect.fn("RebaseRelease.commandResult")(function* (
+const gitResult = Effect.fn("MergeRelease.commandResult")(function* (
   args: Array<string>,
   directory: string,
 ) {
@@ -82,7 +82,6 @@ const gitResult = Effect.fn("RebaseRelease.commandResult")(function* (
       env: {
         GIT_TERMINAL_PROMPT: "0",
         GIT_EDITOR: "true",
-        GIT_SEQUENCE_EDITOR: "true",
       },
       extendEnv: true,
     }),
@@ -97,7 +96,7 @@ const gitResult = Effect.fn("RebaseRelease.commandResult")(function* (
   );
 }, Effect.scoped);
 
-const git = Effect.fn("RebaseRelease.git")(function* (
+const git = Effect.fn("MergeRelease.git")(function* (
   args: Array<string>,
   directory: string,
 ) {
@@ -112,10 +111,9 @@ const git = Effect.fn("RebaseRelease.git")(function* (
   return result.stdout.trim();
 });
 
-export const inspectRelease = Effect.fn("RebaseRelease.inspect")(function* (
+export const inspectRelease = Effect.fn("MergeRelease.inspect")(function* (
   directory: string,
   forkRef: string,
-  upstreamRef: string,
 ) {
   const tags = (yield* git(
     ["tag", "--list", "@confect/core@*"],
@@ -124,50 +122,45 @@ export const inspectRelease = Effect.fn("RebaseRelease.inspect")(function* (
   const tag = yield* Effect.fromResult(selectReleaseTag(tags));
   const forkHead = yield* git(["rev-parse", `${forkRef}^{commit}`], directory);
   const target = yield* git(["rev-parse", `${tag}^{commit}`], directory);
-  const base = yield* git(["merge-base", forkRef, upstreamRef], directory);
-  return planRebase({ tag, target, base, forkHead });
+  const base = yield* git(["merge-base", forkHead, target], directory);
+  return planMerge({ tag, target, base, forkHead });
 });
 
-export const checkRebase = Effect.fn("RebaseRelease.check")(function* (
+export const checkMerge = Effect.fn("MergeRelease.check")(function* (
   directory: string,
   forkRef: string,
-  upstreamRef: string,
 ) {
-  const plan = yield* inspectRelease(directory, forkRef, upstreamRef);
-  if (plan._tag === "AlreadyCurrent") {
-    yield* Console.log(`Already current at ${plan.tag} (${plan.base})`);
+  const plan = yield* inspectRelease(directory, forkRef);
+  if (plan._tag === "AlreadyMerged") {
+    yield* Console.log(
+      `${forkRef} already contains ${plan.tag} (${plan.target})`,
+    );
     return plan;
   }
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const temporary = yield* fs.makeTempDirectoryScoped({
-    prefix: "confect-rebase-",
+    prefix: "confect-merge-",
   });
   const scratch = path.join(temporary, "checkout");
-  const branch = `englever/rebase-check-${path.basename(temporary)}`;
   yield* Effect.acquireRelease(
-    git(["worktree", "add", "-b", branch, scratch, plan.forkHead], directory),
+    git(["worktree", "add", "--detach", scratch, plan.forkHead], directory),
     () =>
       Effect.gen(function* () {
-        yield* git(["rebase", "--abort"], scratch).pipe(Effect.ignore);
+        yield* git(["merge", "--abort"], scratch).pipe(Effect.ignore);
         yield* git(["worktree", "remove", "--force", scratch], directory);
-        yield* git(["branch", "-D", branch], directory);
       }).pipe(Effect.orDie),
   );
   const result = yield* gitResult(
     [
       "-c",
-      "user.name=Confect rebase check",
+      "user.name=Confect merge check",
       "-c",
       "user.email=confect@example.invalid",
-      "-c",
-      "commit.gpgsign=false",
-      "-c",
-      "rebase.updateRefs=false",
-      "rebase",
-      "--onto",
+      "merge",
+      "--no-commit",
+      "--no-ff",
       plan.tag,
-      plan.base,
     ],
     scratch,
   );
@@ -179,15 +172,15 @@ export const checkRebase = Effect.fn("RebaseRelease.check")(function* (
       .split("\n")
       .filter(Boolean);
     yield* Console.error(
-      `Rebase onto ${plan.tag} failed. Conflicting files:\n${files.join("\n") || "(none; see git output)"}`,
+      `Merging ${plan.tag} into ${forkRef} failed. Conflicting files:\n${files.join("\n") || "(none; see git output)"}`,
     );
     if (files.length === 0)
-      return yield* new RebaseFailed({
+      return yield* new MergeFailed({
         tag: plan.tag,
         base: plan.base,
         output: result.stdout + result.stderr,
       });
-    return yield* new RebaseConflict({
+    return yield* new MergeConflict({
       tag: plan.tag,
       base: plan.base,
       files,
@@ -195,21 +188,16 @@ export const checkRebase = Effect.fn("RebaseRelease.check")(function* (
     });
   }
   yield* Console.log(
-    `Rebase applies cleanly onto ${plan.tag}; fork ref remains ${plan.forkHead}`,
+    `${plan.tag} merges cleanly into ${forkRef}; fork ref remains ${plan.forkHead}`,
   );
   return plan;
 }, Effect.scoped);
 
 if (import.meta.main) {
-  const [forkRef = "origin/englever/main", upstreamRef = "upstream/main"] =
-    Bun.argv.slice(2);
+  const [forkRef = "origin/englever/main"] = Bun.argv.slice(2);
   Effect.gen(function* () {
     const path = yield* Path.Path;
-    yield* checkRebase(
-      path.resolve(import.meta.dir, ".."),
-      forkRef,
-      upstreamRef,
-    );
+    yield* checkMerge(path.resolve(import.meta.dir, ".."), forkRef);
   }).pipe(
     Effect.tapError((error) => Console.error(error)),
     Effect.provide(BunServices.layer),
