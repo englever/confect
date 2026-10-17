@@ -317,3 +317,11 @@ it("validates a component's auth file in full generation", () => {
     SyncState.forBackend(httpOnly, { declared: false, component: true }),
   ).toBe(httpOnly);
 });
+
+it("requires full generation when exported callback contracts change", () => {
+  expect(
+    SyncState.add(SyncState.empty, [
+      EntryPoint.Kind.Callbacks({ relativePath: "callbacks.ts" }),
+    ]).work,
+  ).toEqual(SyncState.Work.Full());
+});

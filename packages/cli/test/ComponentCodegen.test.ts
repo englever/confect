@@ -12,6 +12,9 @@ import {
   codegenHandler,
   makeCodegenHandler,
 } from "@confect/cli/confect/codegen";
+import { IdScope } from "@confect/core";
+import { ConvexDirectory } from "@confect/cli/ConvexDirectory";
+import { renderCodegenError } from "@confect/cli/CodegenError";
 import * as DirectoryOptions from "@confect/cli/DirectoryOptions";
 import * as Project from "./integration/Project";
 
@@ -191,7 +194,7 @@ export default Env.make("counter", { LIMIT: Env.optional(Env.string()) });
         `${directory}/confect/app.ts`,
         `import { App } from "@confect/core";
 import env from "./env";
-export default App.make({ env });
+export default App.make({ kind: "component", env });
 `,
       );
       yield* codegenHandler.pipe(
@@ -377,7 +380,7 @@ it.effect.each(["configured", "declared"] as const)(
         );
         yield* project.write(
           "confect/app.ts",
-          'import { App } from "@confect/core";\nimport env from "./env";\nexport default App.make({ env });\n',
+          'import { App } from "@confect/core";\nimport env from "./env";\nexport default App.make({ kind: "component", env });\n',
         );
       }
       yield* project.write(
@@ -438,4 +441,112 @@ it.effect.each(["configured", "declared"] as const)(
         yield* fs.exists(`${project.root}/confect/_generated/tables/notes.ts`),
       ).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([
+  { declaredKind: "app", targetKind: "component" },
+  { declaredKind: "component", targetKind: "app" },
+] as const)(
+  "rejects a $declaredKind declaration in a $targetKind target",
+  ({ declaredKind, targetKind }) =>
+    Effect.gen(function* () {
+      const project = yield* Project.make;
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.copyFile(
+        `${import.meta.dirname}/fixtures/declaration-checks/${declaredKind}.ts`,
+        `${project.root}/confect/app.ts`,
+      );
+      const result = yield* project.provide(
+        codegenHandler.pipe(
+          Effect.provideService(ConvexDirectory, {
+            get: Effect.succeed(`${project.root}/convex`),
+            target:
+              targetKind === "app"
+                ? { kind: "app", scope: IdScope.app }
+                : {
+                    kind: "component",
+                    scope: IdScope.component("package:convex"),
+                  },
+          }),
+          Effect.result,
+        ),
+      );
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({
+        _tag: "DeclarationKindMismatchError",
+        declarationPath: "confect/app.ts",
+        declaredKind,
+        targetKind,
+      });
+      if (result.failure._tag === "DeclarationKindMismatchError") {
+        expect(renderCodegenError(result.failure)).toContain(
+          `declares kind "${declaredKind}", but the target directory is kind "${targetKind}".`,
+        );
+      }
+      expect(yield* fs.exists(`${project.root}/convex/convex.config.ts`)).toBe(
+        false,
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each(["configured", "declared"] as const)(
+  "checks exported callback prefixes against the %s component's definition name",
+  (configuration) =>
+    Effect.gen(function* () {
+      const directory = yield* freshFixture;
+      const fs = yield* FileSystem.FileSystem;
+      if (configuration === "declared") {
+        yield* fs.remove(`${directory}/convex/convex.config.ts`);
+        yield* fs.copyFile(
+          `${import.meta.dirname}/fixtures/declaration-checks/component.ts`,
+          `${directory}/confect/app.ts`,
+        );
+      }
+      const run = codegenHandler.pipe(
+        Effect.provide(
+          DirectoryOptions.layer({
+            componentDir: Option.some(`${directory}/convex`),
+          }),
+        ),
+      );
+      yield* fs.copyFile(
+        `${import.meta.dirname}/fixtures/declaration-checks/validCallbacks.ts`,
+        `${directory}/confect/callbacks.ts`,
+      );
+      yield* run;
+      if (configuration === "declared") {
+        expect(
+          yield* fs.readFileString(`${directory}/convex/convex.config.ts`),
+        ).toContain('defineComponent("counter")');
+      }
+      yield* fs.copyFile(
+        `${import.meta.dirname}/fixtures/declaration-checks/callbacks.ts`,
+        `${directory}/confect/callbacks.ts`,
+      );
+      const result = yield* Effect.result(run);
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({
+        _tag: "CallbackPrefixError",
+        declarationPath: "confect/callbacks.ts",
+        contractId: "counterfeit/onWrong",
+        componentName: "counter",
+      });
+      if (result.failure._tag === "CallbackPrefixError") {
+        expect(renderCodegenError(result.failure)).toContain(
+          'must start with "counter/" for component "counter".',
+        );
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("leaves host callback exports unchecked", () =>
+  Effect.gen(function* () {
+    const project = yield* Project.make;
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.copyFile(
+      `${import.meta.dirname}/fixtures/declaration-checks/callbacks.ts`,
+      `${project.root}/confect/callbacks.ts`,
+    );
+    yield* project.provide(codegenHandler);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

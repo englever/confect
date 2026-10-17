@@ -50,6 +50,9 @@ export interface Any {
   readonly functionProvenance: FunctionProvenance.AnyConfect;
 }
 
+export const isContract = (u: unknown): u is Any =>
+  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId;
+
 type ArgsFields<Contract_ extends Any> =
   Contract_["functionProvenance"] extends {
     readonly "~ArgsFields": infer ArgsFields_ extends

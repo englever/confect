@@ -1,6 +1,7 @@
 import type { AuthProvider } from "convex/server";
 import * as Predicate from "effect/Predicate";
 import type * as App from "./App";
+import type { TypeError } from "./Types";
 
 const TypeId = "~@confect/core/Auth";
 const SiteUrlTypeId = "~@confect/core/Auth/SiteUrl";
@@ -58,6 +59,15 @@ export function siteUrl(
   };
 }
 
+export type AppOnlyError = TypeError<
+  "Auth.make accepts only app declarations; components receive identity through function arguments",
+  never
+>;
+
+type AppOnly<A extends App.Any> = [A["kind"]] extends ["app"]
+  ? unknown
+  : AppOnlyError;
+
 /**
  * Declare the identity providers whose tokens the backend accepts, in
  * `confect/auth.ts`. This is Convex's own provider list; codegen writes it to
@@ -72,7 +82,7 @@ export function siteUrl(
  * ```
  */
 export const make = <A extends App.Any>(
-  app: A,
+  app: A & AppOnly<NoInfer<A>>,
   options: { readonly providers: ReadonlyArray<Provider> },
 ): Auth<A> => ({ [TypeId]: TypeId, app, providers: options.providers });
 

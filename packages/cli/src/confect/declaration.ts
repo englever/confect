@@ -10,6 +10,7 @@ import { fromBundlerError } from "../BuildError";
 import * as Bundler from "../Bundler";
 import {
   HandWrittenConvexFileError,
+  DeclarationKindMismatchError,
   InvalidDeclarationError,
 } from "../CodegenError";
 import { ConfectDirectory } from "../ConfectDirectory";
@@ -218,6 +219,14 @@ const writeDeclaration = Effect.gen(function* () {
   const target = (yield* ConvexDirectory.target).kind;
 
   const app = yield* bundleDeclaration("app.ts");
+  const appValue: unknown = app.module.default;
+  if (App.isApp(appValue) && appValue.kind !== target) {
+    return yield* new DeclarationKindMismatchError({
+      declarationPath: "confect/app.ts",
+      declaredKind: appValue.kind,
+      targetKind: target,
+    });
+  }
   const authPath = yield* confectPath("auth.ts");
   const auth = (yield* fs.exists(authPath))
     ? Option.some(yield* bundleDeclaration("auth.ts"))
@@ -280,7 +289,6 @@ const writeDeclaration = Effect.gen(function* () {
     onSome: (providers) =>
       writeFileStringAndLog(authConfigPath, Declaration.authConfig(providers)),
   });
-  const appValue: unknown = app.module.default;
   return App.isApp(appValue) ? Option.some(appValue) : Option.none<App.Any>();
 });
 

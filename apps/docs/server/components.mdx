@@ -279,6 +279,8 @@ export const OnEvent = Callback.mutation("email/onEvent", {
 });
 ```
 
+Codegen checks contracts exported from `confect/callbacks.ts`. Each id must start with the name passed to `defineComponent`, followed by `/` (for a declared component, this is the name in `Env.make`). It checks the exports without evaluating schema thunks. A component without this file passes.
+
 The module imports nothing from `@confect/server`, so a host can import the contract and its errors when it implements the callback.
 
 ### Store and run a handle

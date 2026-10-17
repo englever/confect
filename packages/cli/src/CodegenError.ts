@@ -185,6 +185,24 @@ export class HandWrittenConvexFileError extends Schema.TaggedError<HandWrittenCo
   },
 ) {}
 
+export class DeclarationKindMismatchError extends Schema.TaggedError<DeclarationKindMismatchError>()(
+  "DeclarationKindMismatchError",
+  {
+    declarationPath: Schema.String,
+    declaredKind: Schema.Literals(["app", "component"]),
+    targetKind: Schema.Literals(["app", "component"]),
+  },
+) {}
+
+export class CallbackPrefixError extends Schema.TaggedError<CallbackPrefixError>()(
+  "CallbackPrefixError",
+  {
+    declarationPath: Schema.String,
+    contractId: Schema.String,
+    componentName: Schema.String,
+  },
+) {}
+
 export const CodegenError = Schema.Union([
   SnapshotError,
   BuildError,
@@ -209,6 +227,8 @@ export const CodegenError = Schema.Union([
   InvalidConvexConfigError,
   InvalidDeclarationError,
   HandWrittenConvexFileError,
+  DeclarationKindMismatchError,
+  CallbackPrefixError,
 ]);
 export type CodegenError = typeof CodegenError.Type;
 
@@ -424,6 +444,21 @@ export const renderCodegenError = (error: CodegenError): string => {
       "Declaration ",
       formatPath(error.declarationPath),
       ` is invalid: ${error.reason}`,
+    );
+  }
+  if (error._tag === "DeclarationKindMismatchError") {
+    return singleLine(
+      "Declaration ",
+      formatPath(error.declarationPath),
+      ` declares kind "${error.declaredKind}", but the target directory is kind "${error.targetKind}".`,
+    );
+  }
+  if (error._tag === "CallbackPrefixError") {
+    return singleLine(
+      "Callback contract ",
+      `"${error.contractId}" in `,
+      formatPath(error.declarationPath),
+      ` must start with "${error.componentName}/" for component "${error.componentName}".`,
     );
   }
   if (error._tag === "HandWrittenConvexFileError") {

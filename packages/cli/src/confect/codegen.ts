@@ -1,4 +1,4 @@
-import { type GroupSpec, Spec } from "@confect/core";
+import { App, Callback, Env, type GroupSpec, Spec } from "@confect/core";
 import * as Command from "effect/cli/Command";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Record from "effect/Record";
 import type * as Scope from "effect/Scope";
 import * as Bundler from "../Bundler";
+import { fromBundlerError } from "../BuildError";
 import * as CodegenError from "../CodegenError";
 import { LegacySchemaFileError } from "../CodegenError";
 import { ConfectDirectory } from "../ConfectDirectory";
@@ -138,6 +139,7 @@ const runCodegen = Effect.gen(function* () {
   // Tables and specs can use bound component IDs and schemas, so their
   // imports need the registry even on a project's first codegen run.
   yield* generateComponents;
+  yield* validateCallbackPrefixes(declared);
   // Now that `_generated/id.ts` is on disk, bundle each table module and
   // check its default export is an `UnnamedTable`. Surface diagnostics
   // here (rather than later) so they appear before impl-validation noise.
@@ -273,6 +275,36 @@ const rejectComponentNodeGroups = Effect.fnUntraced(function* (
       ),
     ),
   );
+});
+
+const validateCallbackPrefixes = Effect.fnUntraced(function* (
+  declared: Option.Option<App.Any>,
+) {
+  if ((yield* ConvexDirectory.target).kind !== "component") return;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const callbacksPath = path.join(yield* ConfectDirectory.get, "callbacks.ts");
+  if (!(yield* fs.exists(callbacksPath))) return;
+  const name = Option.isSome(declared)
+    ? Env.name(App.env(declared.value))
+    : yield* ConvexConfig.componentName(
+        path.join(
+          yield* ConvexDirectory.get,
+          ConvexConfig.CONVEX_CONFIG_FILENAME,
+        ),
+      );
+  const { module } = yield* Bundler.bundle(callbacksPath).pipe(
+    Effect.mapError((error) => fromBundlerError("confect/callbacks.ts", error)),
+  );
+  for (const contract of Object.values(module)) {
+    if (Callback.isContract(contract) && !contract.id.startsWith(`${name}/`)) {
+      return yield* new CodegenError.CallbackPrefixError({
+        declarationPath: "confect/callbacks.ts",
+        contractId: contract.id,
+        componentName: name,
+      });
+    }
+  }
 });
 
 const validateComponentConfiguration = Effect.gen(function* () {

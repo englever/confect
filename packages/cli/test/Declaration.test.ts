@@ -24,6 +24,7 @@ describe("Declaration", () => {
     const parsed = Declaration.parse({
       target: "component",
       app: App.make({
+        kind: "component",
         env,
         mounts: { limiter: App.mount(ratelimiter, { env: { LIMIT: "10" } }) },
       }),
