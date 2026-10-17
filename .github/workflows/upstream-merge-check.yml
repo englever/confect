@@ -1,4 +1,4 @@
-name: Check upstream release rebase
+name: Check upstream release merge
 
 on:
   schedule:
@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  rebase:
-    name: Rebase in a scratch branch
+  merge:
+    name: Merge in a scratch worktree
     if: github.repository == 'englever/confect'
     runs-on: ubuntu-latest
     steps:
@@ -32,4 +32,4 @@ jobs:
           git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
           git fetch --no-tags upstream 'refs/tags/@confect/core@*:refs/tags/@confect/core@*'
       - name: Check the newest stable release
-        run: bun scripts/rebaseOntoRelease.ts origin/englever/main upstream/main
+        run: bun scripts/mergeUpstreamRelease.ts origin/englever/main
