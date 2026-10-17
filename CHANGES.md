@@ -185,6 +185,22 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Testing and documentation
 
+### [#27](https://github.com/englever/confect/pull/27) Keep fork housekeeping separate
+
+Move fork prose and rules from README.md and AGENTS.md into FORK.md so upstream
+merges leave upstream-owned instructions unchanged. Keep exact-build installation
+and publishing instructions with the fork's build naming and two-remotes rules.
+
+Stop moving the `latest` dist-tag after publication; consumers pin exact builds.
+Keep the version lookup that works without `latest`. Schedule an internal create
+mutation in the local-backend component fixture so its jobs obey the component
+scheduling rule. The authored-component CLI fixture and consumer component have
+no scheduled public calls and need no changes. Regenerate the fixture with the
+fork CLI.
+
+Changeset: none; fork documentation, publishing and test fixtures only.
+Upstream: fork only.
+
 ### [#28](https://github.com/englever/confect/pull/28) Document authored and generated component code
 
 Rewrite `apps/docs/server/components.mdx` around the packed consumer fixture's

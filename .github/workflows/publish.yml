@@ -85,8 +85,6 @@ jobs:
         run: |
           for tarball in "$RUNNER_TEMP/confect-packages/tarballs/"*.tgz; do
             pnpm publish "$tarball" --no-git-checks --tag englever --registry https://npm.pkg.github.com
-            package=$(tar -xOf "$tarball" package/package.json | jq -r '"\(.name)@\(.version)"')
-            pnpm dist-tag add "$package" latest --registry https://npm.pkg.github.com
           done
       - name: Upload published build
         if: always() && steps.stage.outcome == 'success'
