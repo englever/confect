@@ -20,6 +20,7 @@ import { discoverTableFiles, type TableModule } from "./TableModule";
 export type Kind = Data.TaggedEnum<{
   Env: { readonly relativePath: "env.ts" };
   App: { readonly relativePath: "app.ts" };
+  Callbacks: { readonly relativePath: "callbacks.ts" };
   Spec: { readonly relativePath: SpecModulePath.SpecModulePath };
   Impl: { readonly relativePath: ImplModulePath };
   Table: { readonly relativePath: TableModulePath };
@@ -87,6 +88,8 @@ export const parse = (
 ): Option.Option<Exclude<Kind, { readonly _tag: "Config" }>> => {
   if (relativePath === "env.ts") return Option.some(Kind.Env({ relativePath }));
   if (relativePath === "app.ts") return Option.some(Kind.App({ relativePath }));
+  if (relativePath === "callbacks.ts")
+    return Option.some(Kind.Callbacks({ relativePath }));
   if (relativePath === "http.ts")
     return Option.some(Kind.Http({ relativePath }));
   if (relativePath === "crons.ts")
@@ -131,6 +134,9 @@ export const discover = Effect.gen(function* () {
   const fixedEntryOptions = yield* Effect.all([
     tryEntry(Kind.Env({ relativePath: "env.ts" })),
     Effect.succeed(declaration),
+    (yield* ConvexDirectory.target).kind === "component"
+      ? tryEntry(Kind.Callbacks({ relativePath: "callbacks.ts" }))
+      : Effect.succeedNone,
     tryEntry(Kind.Http({ relativePath: "http.ts" })),
     tryEntry(Kind.Crons({ relativePath: "crons.ts" })),
     tryEntry(Kind.Auth({ relativePath: "auth.ts" })),
