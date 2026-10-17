@@ -210,7 +210,7 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Fork integration and publishing
 
-### Gate fork publication and exercise a declared consumer
+### [#25](https://github.com/englever/confect/pull/25) Gate fork publication and exercise a declared consumer
 
 Publish only after every check in the same commit's Packages workflow passes.
 Make the publisher reusable instead of starting an independent push run, and
