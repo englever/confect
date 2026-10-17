@@ -185,14 +185,12 @@ type ConvertValueToValidator<
                         ? ObjectValueToValidator<Vl, Optionality>
                         : never;
 
-type StringValueToValidator<
-  Vl,
-  Optionality extends "required" | "optional",
-> = Vl extends ConvexGenericId<string>
-  ? VId<OptionalValue<Vl, Optionality>, Optionality>
-  : [string] extends [Vl]
-    ? VString<OptionalValue<string, Optionality>, Optionality>
-    : VLiteral<OptionalValue<Vl, Optionality>, Optionality>;
+type StringValueToValidator<Vl, Optionality extends "required" | "optional"> =
+  Vl extends ConvexGenericId<string>
+    ? VId<OptionalValue<Vl, Optionality>, Optionality>
+    : [string] extends [Vl]
+      ? VString<OptionalValue<string, Optionality>, Optionality>
+      : VLiteral<OptionalValue<Vl, Optionality>, Optionality>;
 
 type ObjectValueToValidator<Vl, Optionality extends "required" | "optional"> =
   IsRecord<MutableValue<Vl>> extends true
