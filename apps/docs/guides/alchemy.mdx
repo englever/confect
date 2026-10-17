@@ -111,6 +111,8 @@ Effect.gen(function* () {
 });
 ```
 
+`Backend.env` is a flat record of variable names to strings, `Redacted<string>` values, or Alchemy inputs of either. It does not accept an `Env.make` declaration or a `{ manifest, values }` wrapper and does not infer variables from `confect/_generated/manifest.ts`. For a declared backend, you can check a values object with `Manifest.Values<typeof manifest>` and pass that object as `env`.
+
 `env` is applied before code is pushed. Pass `backend.url` to your frontend resource's build environment, such as `VITE_CONVEX_URL`. This establishes an Alchemy dependency on backend deployment completion. Never pass the deploy key to the frontend.
 
 One stack should own each project and deployment. For a project shared by several stages, pass its project ID to each stage's deployment rather than declaring the same project in every stage. Deployment references must be unique within the project.
@@ -120,13 +122,14 @@ One stack should own each project and deployment. For a project shared by severa
 `Convex.Code` runs the Convex deploy command without Confect codegen:
 
 ```ts
-const code =
-  yield *
-  Convex.Code("Backend", {
+Effect.gen(function* () {
+  const code = yield* Convex.Code("Backend", {
     deployment,
     deployKey: key.deployKey,
     cwd: "apps/backend",
   });
+  return code;
+});
 ```
 
 You can also declare `Convex.EnvironmentVariables` separately. A standalone code resource must depend on its outputs if those variables need to be applied first; declaring resources in source order alone does not establish a dependency. `Confect.Backend` handles this ordering for its `env` option.
@@ -151,6 +154,8 @@ Values your stack reads with `Config`, such as `CONVEX_TEAM_ID`, must still reso
 The backend keeps running while `alchemy dev` reloads your stack and stops when you end the session. If it exits or fails to start, the next reload starts it again. Its data, environment variables, and credentials are kept in `.alchemy/convex/<stack>/<stage>/<deployment>` and reused the next time you run `alchemy dev`, on the same ports and URL. Only one session can serve a data directory at a time.
 
 Removing the deployment from your stack keeps its data; `RemovalPolicy.destroy()` deletes it. If you lose your Alchemy state, the next `alchemy dev` creates a new deployment, and the old data directory stays until you delete it. Removing `Convex.EnvironmentVariables` while its backend is not running drops them from your Alchemy state but leaves them set in the kept data.
+
+Alchemy does not run `confect dev` or `convex dev` for you. `Confect.Backend` runs one-shot `confect codegen` before each push. Run `confect dev` separately if you need continuous generated-file updates; it does not trigger Alchemy to push.
 
 Code is pushed each time the stack applies. `alchemy dev` re-applies when a file your stack imports changes; after editing Convex functions that your stack does not import, save `alchemy.run.ts` or restart `alchemy dev` to push them.
 
@@ -184,6 +189,8 @@ Environment management preserves unrelated variables. Existing variables that ov
 Set `env: {}` to remove all managed variables before the next code push. Removing the `env` option removes the environment resource instead, so its cleanup follows Alchemy's resource-deletion ordering.
 
 Deploy-key secrets are only available when created. If the key's saved secret is lost, or the managed key no longer exists, deployment fails rather than silently rotating credentials. Restore the protected state or explicitly provision a replacement key. Deploy keys are revoked when their resource is destroyed.
+
+After upgrading to the fork based on upstream 10.3.1, regenerate with `confect codegen` before using the backend's generated files. `Confect.Backend` also regenerates them on its next apply.
 
 ## Troubleshoot a failed push
 
