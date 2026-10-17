@@ -3,6 +3,8 @@ import counter from "../counter.spec";
 
 const spec: Spec.Spec<{
   readonly counter: GroupSpec.NamedAt<typeof counter, "counter">;
-}> = (Spec.make() as any).addAt("counter", (counter as any));
+}> = Spec.fromGroups({
+  ["counter"]: counter,
+}) as typeof spec;
 
 export default spec;
