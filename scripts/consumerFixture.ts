@@ -16,18 +16,22 @@ export class InvalidConsumerVersion extends Schema.TaggedError<InvalidConsumerVe
   { version: Schema.String },
 ) {}
 
-export const consumerManifest = (version: string) => {
+export const consumerManifest = (version: string, tarballs?: string) => {
   if (!/^\d+\.\d+\.\d+-englever\.(0|[1-9]\d*)$/.test(version))
     return Result.fail(new InvalidConsumerVersion({ version }));
+  const forkPackage = (name: string) =>
+    tarballs === undefined
+      ? `npm:@englever/confect-${name}@${version}`
+      : `file:${tarballs}/${name}.tgz`;
   return Result.succeed({
     name: "confect-install-check",
     private: true,
     type: "module",
     dependencies: {
-      "@confect/core": `npm:@englever/confect-core@${version}`,
-      "@confect/server": `npm:@englever/confect-server@${version}`,
-      "@confect/test": `npm:@englever/confect-test@${version}`,
-      "@confect/cli": `npm:@englever/confect-cli@${version}`,
+      "@confect/core": forkPackage("core"),
+      "@confect/server": forkPackage("server"),
+      "@confect/test": forkPackage("test"),
+      "@confect/cli": forkPackage("cli"),
       convex: "1.46.0",
       "convex-test": "0.0.60",
       effect: "4.0.1",
@@ -89,6 +93,12 @@ export const writeConsumer = Effect.fn("ConsumerFixture.write")(function* (
         .map((spec) => `  - "${spec.slice(4)}"`),
       "",
       "overrides:",
+      ...Object.entries(manifest.dependencies)
+        .filter(
+          ([name, spec]) =>
+            name.startsWith("@confect/") && spec.startsWith("file:"),
+        )
+        .map(([name, spec]) => `  "${name}": "${spec}"`),
       `  effect: ${manifest.dependencies.effect}`,
       `  convex: ${manifest.dependencies.convex}`,
       `  "@effect/platform-node": ${manifest.dependencies["@effect/platform-node"]}`,
@@ -101,11 +111,11 @@ export const writeConsumer = Effect.fn("ConsumerFixture.write")(function* (
 });
 
 if (import.meta.main) {
-  const [destination, version] = Bun.argv.slice(2);
-  const manifest = consumerManifest(version ?? "");
+  const [destination, version, tarballs] = Bun.argv.slice(2);
+  const manifest = consumerManifest(version ?? "", tarballs);
   if (!destination || Result.isFailure(manifest)) {
     Console.error(
-      "Usage: bun scripts/consumerFixture.ts <new-directory> <build-version>",
+      "Usage: bun scripts/consumerFixture.ts <new-directory> <build-version> [absolute-tarball-directory]",
       Result.isFailure(manifest) ? manifest.failure : undefined,
     ).pipe(Effect.runSync);
     process.exitCode = 1;

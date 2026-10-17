@@ -1,21 +1,24 @@
 name: Publish fork builds
 
 on:
-  push:
-    branches:
-      - englever/main
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish after the caller's checks pass.
+        required: true
+        type: boolean
+      n:
+        description: Unused build number above all existing builds.
+        required: false
+        type: string
   pull_request:
     branches:
       - englever/main
   workflow_dispatch:
     inputs:
-      n:
-        description: Unused build number above all existing builds. Leave empty for the next number.
-        required: false
-        type: string
       version:
-        description: Check an existing build without publishing. Leave empty to publish a new build.
-        required: false
+        description: Check this existing build without publishing. Use Packages to publish a new build.
+        required: true
         type: string
 
 permissions:
@@ -46,7 +49,7 @@ jobs:
 
   publish:
     name: Publish to GitHub Packages
-    if: github.repository == 'englever/confect' && github.ref == 'refs/heads/englever/main' && github.event_name != 'pull_request' && inputs.version == ''
+    if: inputs.publish == true && github.repository == 'englever/confect' && github.ref == 'refs/heads/englever/main' && github.event_name != 'pull_request' && inputs.version == ''
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.stage.outputs.version }}
@@ -97,10 +100,11 @@ jobs:
 
   install-check:
     name: Install and exercise a fresh consumer
-    needs: publish
+    needs: [dry-run, publish]
     if: >-
       !cancelled() && github.repository == 'englever/confect' &&
       (needs.publish.result == 'success' ||
+      (github.event_name == 'pull_request' && needs.dry-run.result == 'success') ||
       (github.event_name == 'workflow_dispatch' && inputs.version != ''))
     runs-on: ubuntu-latest
     permissions:
@@ -119,14 +123,25 @@ jobs:
           node-version-file: ".node-version"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
+      - name: Download the PR's packed build
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v8
+        with:
+          name: confect-github-packages-dry-run
+          path: ${{ runner.temp }}/confect-packages
       - name: Write the scratch consumer
         run: |
-          bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$BUILD_VERSION"
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            version=$(jq -r '.version' "$RUNNER_TEMP/confect-packages/plan.json")
+            bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$version" "$RUNNER_TEMP/confect-packages/tarballs"
+          else
+            bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$BUILD_VERSION"
+          fi
           # pnpm 12 ignores interpolated credentials in a project .npmrc.
           printf '%s\n' \
             '@englever:registry=https://npm.pkg.github.com' \
             '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$HOME/.npmrc"
-      - name: Install the published aliases with strict peers
+      - name: Install the build with strict peers
         working-directory: ${{ runner.temp }}/confect-consumer
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -136,14 +151,17 @@ jobs:
           rm "$HOME/.npmrc"
       - name: Generate code with the installed CLI
         working-directory: ${{ runner.temp }}/confect-consumer
-        run: pnpm confect codegen
+        run: |
+          pnpm confect codegen --component-dir components/counter/convex
+          pnpm confect codegen
       - name: Typecheck the consumer
         working-directory: ${{ runner.temp }}/confect-consumer
         run: pnpm exec tsc --noEmit
-      - name: Run the TestConfect query
+      - name: Exercise the declaration, component and callback
         working-directory: ${{ runner.temp }}/confect-consumer
         run: pnpm exec vitest run
       - name: Print the verified install command
+        if: github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/confect-consumer
         run: |
           {
@@ -159,7 +177,7 @@ jobs:
       - name: Upload the consumer lockfile and install recipe
         uses: actions/upload-artifact@v7
         with:
-          name: confect-consumer-${{ env.BUILD_VERSION }}-${{ github.run_id }}
+          name: confect-consumer-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/confect-consumer/pnpm-lock.yaml
             ${{ runner.temp }}/confect-consumer/package.json
