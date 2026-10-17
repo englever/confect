@@ -65,7 +65,7 @@ export const writeConsumer = Effect.fn("ConsumerFixture.write")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  yield* fs.makeDirectory(destination);
+  yield* fs.makeDirectory(destination, { recursive: true });
   const template = path.join(import.meta.dir, "consumer");
   for (const file of yield* fs.readDirectory(template, { recursive: true })) {
     if (!file.endsWith(".template")) continue;

@@ -111,11 +111,35 @@ Effect.gen(function* () {
 });
 ```
 
-`Backend.env` is a flat record of variable names to strings, `Redacted<string>` values, or Alchemy inputs of either. It does not accept an `Env.make` declaration or a `{ manifest, values }` wrapper and does not infer variables from `confect/_generated/manifest.ts`. For a declared backend, you can check a values object with `Manifest.Values<typeof manifest>` and pass that object as `env`.
+`Backend.env` is a flat record of variable names to deployment inputs. Pass the generated `manifest` as a separate prop to type its keys and values from `confect/env.ts`. It does not accept an `Env.make` declaration or a `{ manifest, values }` wrapper. Without `manifest`, values can be strings, `Redacted<string>` values, or Alchemy inputs of either.
 
 `env` is applied before code is pushed. Pass `backend.url` to your frontend resource's build environment, such as `VITE_CONVEX_URL`. This establishes an Alchemy dependency on backend deployment completion. Never pass the deploy key to the frontend.
 
 One stack should own each project and deployment. For a project shared by several stages, pass its project ID to each stage's deployment rather than declaring the same project in every stage. Deployment references must be unique within the project.
+
+For a [declared backend](/server/backend-declaration), pass its generated manifest to type the env input directly from `confect/env.ts`:
+
+```ts
+import { Confect } from "@confect/alchemy";
+import * as Config from "effect/Config";
+import * as Effect from "effect/Effect";
+import manifest from "../backend/confect/_generated/manifest";
+
+Effect.gen(function* () {
+  return yield* Confect.Backend("Backend", {
+    deployment,
+    deployKey,
+    manifest,
+    env: {
+      EMAIL_FROM: "noreply@example.edu",
+      RESEND_API_KEY: yield* Config.Redacted("RESEND_API_KEY"),
+      EMAIL_TRANSPORT: "resend",
+    },
+  });
+});
+```
+
+Required keys must be present. Unknown keys, plain strings for secret fields, and values outside a field's declared literals fail to typecheck. Each value also accepts an Alchemy `Input`. Optional fields can be omitted; `env` itself can be omitted when all fields are optional. Without `manifest`, the existing untyped env record remains available. Infra imports only the generated manifest, never backend implementation code.
 
 ## Use plain Convex
 

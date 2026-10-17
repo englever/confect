@@ -196,6 +196,19 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Testing and documentation
 
+### [#29](https://github.com/englever/confect/pull/29) Declared apps drive tests and Backend env
+
+Generate a test-only app registry from the backend declaration so
+`TestConfect.layer(app)` registers authored and nested components and routes
+mounted HTTP without hand-written registration. Retain the schema constructor
+and accept an authored `App` with its generated registry. Type `Confect.Backend`
+env inputs from the generated manifest, preserving the untyped deployment form.
+Replace public API Effect checks with type assertions. Exercise the existing
+consumer host's HTTP route, callback and declared env on a real local backend.
+
+Changeset: `declared-test-backend.md`.
+Upstream: planned; no linked proposal verified.
+
 ### [#27](https://github.com/englever/confect/pull/27) Keep fork housekeeping separate
 
 Move fork prose and rules from README.md and AGENTS.md into FORK.md so upstream

@@ -45,7 +45,6 @@ export class LocalBackend extends Context.Service<
 >()("@confect/server/test/local-backend/LocalBackend") {}
 
 const READY_LINE = "Convex functions ready!";
-const URL = "http://127.0.0.1:3210";
 
 // Knobs read by `crates/common/src/knobs.rs` in convex-backend. Lowering
 // these shrinks `MAX_CACHE_AGE` (= `USER_TIMEOUT` + `SYSTEM_TIMEOUT` + 1s,
@@ -73,11 +72,16 @@ export const maxCacheAge = Duration.seconds(
  * CLI takes the "existing deployment" path and skips boilerplate codegen that
  * would otherwise overwrite committed fixture files.
  */
-const make = Effect.gen(function* () {
+const make = Effect.fnUntraced(function* (options: {
+  readonly directory: string;
+  readonly port: number;
+  readonly env: ReadonlyArray<readonly [string, string]>;
+  readonly redeployFunction: string;
+}) {
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner;
   const parentScope = yield* Effect.scope;
-  const fixturesDir = path.resolve(import.meta.dirname, "./fixtures");
+  const fixturesDir = path.resolve(import.meta.dirname, options.directory);
 
   const command = ChildProcess.make(
     "pnpm",
@@ -88,9 +92,9 @@ const make = Effect.gen(function* () {
       "--codegen=disable",
       "--tail-logs=disable",
       "--local-cloud-port",
-      "3210",
+      String(options.port),
       "--local-site-port",
-      "3211",
+      String(options.port + 1),
       "--local-backend-version",
       "precompiled-2026-10-06-a3538c6",
     ],
@@ -132,10 +136,7 @@ const make = Effect.gen(function* () {
       );
 
       if (readySeen) {
-        for (const [name, value] of [
-          ["COMPONENT_MARKER", "from-app"],
-          ["COMPONENT_HOST_ONLY", "host-only"],
-        ] as const) {
+        for (const [name, value] of options.env) {
           const code = yield* spawner.exitCode(
             ChildProcess.make("pnpm", ["convex", "env", "set", name, value], {
               cwd: fixturesDir,
@@ -161,7 +162,7 @@ const make = Effect.gen(function* () {
                   "--push",
                   "--typecheck=disable",
                   "--codegen=disable",
-                  "groups/components:hasAuth",
+                  options.redeployFunction,
                 ],
                 {
                   cwd: fixturesDir,
@@ -175,7 +176,10 @@ const make = Effect.gen(function* () {
           if (code !== 0)
             return yield* new BackendRedeployError({ exitCode: code });
         });
-        return { client: new ConvexHttpClient(URL), redeploy };
+        return {
+          client: new ConvexHttpClient(`http://127.0.0.1:${options.port}`),
+          redeploy,
+        };
       }
 
       const exitCode = yield* handle.exitCode;
@@ -213,6 +217,25 @@ const make = Effect.gen(function* () {
   );
 });
 
-export const layer = Layer.effect(LocalBackend, make).pipe(
-  Layer.provide(NodeServices.layer),
-);
+export const layer = Layer.effect(
+  LocalBackend,
+  make({
+    directory: "./fixtures",
+    port: 3210,
+    env: [
+      ["COMPONENT_MARKER", "from-app"],
+      ["COMPONENT_HOST_ONLY", "host-only"],
+    ],
+    redeployFunction: "groups/components:hasAuth",
+  }),
+).pipe(Layer.provide(NodeServices.layer));
+
+export const consumerLayer = Layer.effect(
+  LocalBackend,
+  make({
+    directory: "./.consumer",
+    port: 3220,
+    env: [["INSTALL_MARKER", "declared-consumer"]],
+    redeployFunction: "hello:greet",
+  }),
+).pipe(Layer.provide(NodeServices.layer));

@@ -28,6 +28,7 @@ export interface InstalledComponent {
    * component was defined with).
    */
   readonly name: string;
+  readonly httpPrefix?: string;
   /**
    * The directory the component's definition lives in, mirroring the Convex
    * runtime's convention (a `componentDefinitionPath` identifies the
@@ -76,6 +77,28 @@ export const componentImportOf = (
 const CONVEX_CONFIG_SUFFIX = /[/\\]convex\.config(\.[cm]?[jt]s)?$/;
 
 /**
+ * Resolve the same config spellings that Convex accepts, for configs and test
+ * kits.
+ */
+export const resolveDefinition = (
+  specifier: string,
+  importer: string,
+  path: Path.Path,
+): Option.Option<string> => {
+  const extension = path.extname(specifier);
+  const candidates = [
+    specifier,
+    ...(extension === ".js" ? [specifier.slice(0, -3) + ".ts"] : []),
+    ...(extension !== ".js" && extension !== ".ts"
+      ? [specifier + ".js", specifier + ".ts"]
+      : []),
+  ];
+  return Option.firstSomeOf(
+    candidates.map((candidate) => Bundler.resolveModule(candidate, importer)),
+  );
+};
+
+/**
  * `convex/server`'s `app.use(definition)` rejects any definition object that
  * lacks a string `componentDefinitionPath` ("This code only works in Convex
  * runtime"): that property is normally stamped on by the Convex backend's
@@ -110,21 +133,8 @@ export const componentConfigPlugin = (path: Path.Path): esbuild.Plugin => ({
       // Component definitions are conventionally imported extensionless
       // (`.../convex.config`), which npm `exports` maps resolve but plain
       // file resolution may not—probe the same candidates Convex does.
-      const extension = path.extname(args.path);
-      const candidates = [
-        args.path,
-        ...(extension === ".js"
-          ? [String.slice(0, -".js".length)(args.path) + ".ts"]
-          : []),
-        ...(extension !== ".js" && extension !== ".ts"
-          ? [args.path + ".js", args.path + ".ts"]
-          : []),
-      ];
-
       return pipe(
-        candidates,
-        Array.map((candidate) => Bundler.resolveModule(candidate, importer)),
-        Option.firstSomeOf,
+        resolveDefinition(args.path, importer, path),
         Option.match({
           onNone: () => undefined,
           onSome: (resolved) => ({
@@ -183,6 +193,7 @@ export const componentConfigPlugin = (path: Path.Path): esbuild.Plugin => ({
  * `componentDefinitionPath` injected by {@link componentConfigPlugin}.
  */
 const AppDefinitionAnalysis = Schema.Struct({
+  httpMounts: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   childComponents: Schema.Array(
     Schema.Struct({
       name: Schema.String,
@@ -277,12 +288,18 @@ export const discoverInstalledComponents = Effect.fn(
 
   const components = pipe(
     decoded.childComponents,
-    Array.map(
-      ({ name, path: componentDefinitionPath }): InstalledComponent => ({
+    Array.map(({ name, path: componentDefinitionPath }): InstalledComponent => {
+      const httpPrefix = Object.entries(decoded.httpMounts ?? {}).find(
+        ([, reference]) => reference === `_reference/childComponent/${name}`,
+      )?.[0];
+      return {
         name,
         componentDefinitionPath,
-      }),
-    ),
+        ...(httpPrefix === undefined
+          ? {}
+          : { httpPrefix: httpPrefix.replace(/\/$/, "") }),
+      };
+    }),
     Array.sort(byName),
   );
 

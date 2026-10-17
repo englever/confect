@@ -55,7 +55,7 @@ test("prints the executable strict add command for the generated aliases", () =>
   );
 });
 
-test("writes a standalone consumer with fresh-build exclusions and aligned peers", () =>
+test("writes and refreshes a consumer with aligned peers", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -63,6 +63,10 @@ test("writes a standalone consumer with fresh-build exclusions and aligned peers
       const directory = path.join(
         yield* fs.makeTempDirectoryScoped(),
         "consumer",
+      );
+      yield* writeConsumer(
+        directory,
+        Result.getOrThrow(consumerManifest("10.2.0-englever.0")),
       );
       yield* writeConsumer(
         directory,

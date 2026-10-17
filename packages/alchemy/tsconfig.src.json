@@ -17,5 +17,10 @@
     "moduleResolution": "Bundler",
     "module": "ESNext"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../core/tsconfig.src.json"
+    }
+  ]
 }

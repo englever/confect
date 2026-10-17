@@ -999,7 +999,43 @@ layer(Layer.mergeAll(NodePath.layer, NodeFileSystem.layer))(
           expect(
             yield* project.read("confect/_generated/components.ts"),
           ).toContain('"first": import(');
+          const testing = yield* project.read("confect/_generated/testing.ts");
+          expect(testing).toContain('import schema from "./schema"');
+          expect(testing).toContain('"first": component0');
+          expect(testing).toContain('"second": component0');
+          expect(testing).toContain("components/counter/convex/schema");
+          expect(testing).toContain("() => import(");
+          expect(
+            yield* project.read("confect/_generated/schema.ts"),
+          ).not.toContain("testing");
           expect(yield* Project.writtenFiles(project.run)).toEqual([]);
+        }).pipe(Effect.scoped),
+      { timeout: 30000 },
+    );
+
+    it.effect(
+      "keeps a root HTTP mount valid in the generated test app",
+      () =>
+        Effect.gen(function* () {
+          const project = yield* declarationProject;
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* fs.remove(path.join(project.root, "confect/http.ts"));
+          yield* project.write(
+            "components/counter/convex/http.ts",
+            "export default {};\n",
+          );
+          yield* project.write(
+            "confect/app.ts",
+            (yield* project.read("confect/app.ts")).replace(
+              'httpPrefix: "/first"',
+              'httpPrefix: "/"',
+            ),
+          );
+          yield* project.run;
+          expect(
+            yield* project.read("confect/_generated/testing.ts"),
+          ).toContain('httpPrefix: "/"');
         }).pipe(Effect.scoped),
       { timeout: 30000 },
     );

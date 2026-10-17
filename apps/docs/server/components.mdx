@@ -346,34 +346,16 @@ Owners print as `app`, `docs`, or `mount "<name>"`. Mount-prefix overlap is chec
 
 ## Test with TestConfect
 
-Register the component's generated Convex schema and module loaders at the installation path. This setup is copied from `scripts/consumer/consumer.test.ts.template`:
+Import the generated test app to register declared components and their HTTP mounts automatically. This setup follows `scripts/consumer/consumer.test.ts.template`:
 
 ```ts consumer.test.ts
 import { TestConfect } from "@confect/test";
 import * as Effect from "effect/Effect";
 import { expect, test } from "vitest";
-import componentSchema from "./components/counter/confect/_generated/convexSchema";
-import auth from "./convex/auth.config";
-import convexSchema from "./confect/_generated/convexSchema";
-import manifest from "./confect/_generated/manifest";
-import refs from "./confect/_generated/refs";
-import databaseSchema from "./confect/_generated/schema";
+import app from "./confect/_generated/testing";
 
-const Test = TestConfect.TestConfect<typeof databaseSchema>();
-const layer = TestConfect.layer(
-  databaseSchema,
-  convexSchema,
-  import.meta.glob("./convex/**/*.ts"),
-  {
-    register: (registerComponent) =>
-      registerComponent(
-        "counter",
-        componentSchema,
-        import.meta.glob("./components/counter/convex/**/*.ts"),
-      ),
-    httpMounts: [{ componentPath: "counter", httpPrefix: "/counter" }],
-  },
-);
+const Test = TestConfect.TestConfect<typeof app.schema>();
+const layer = TestConfect.layer(app);
 
 test.each([
   ["/health", "host ready"],
@@ -392,8 +374,8 @@ test.each([
 );
 ```
 
-The registration path must match the installed component path. Include the component's Convex `_generated` files in the module map. `httpMounts` supplies the prefixes for `fetch`; the tests exercise both the host and mounted routes. The same fixture also checks host-to-component calls, the callback result `43`, and validator mismatch rejection.
+Codegen resolves each component's schema and module loaders and supplies the declaration's installation paths and HTTP prefixes. The tests exercise both the host and mounted routes. The same fixture checks host-to-component calls, the callback result `43`, and validator mismatch rejection.
 
-For nested components, register each installation at its full path. A component reused at multiple HTTP mounts needs a fresh router factory per HTTP module loader. See [mounted component HTTP tests](/guides/testing#fetch-mounted-component-routes) for module-cache and process-environment limits.
+Nested installations and their full HTTP prefixes are generated automatically. The schema-based constructor remains available for manual registration and custom loaders. A component reused at multiple HTTP mounts needs a fresh router factory per HTTP module loader. See [mounted component HTTP tests](/guides/testing#fetch-mounted-component-routes) for module-cache and process-environment limits.
 
 When publishing, ship built Convex functions and config, generated Convex `ComponentApi` declarations, the Confect contract, and all their transitive runtime/type dependencies. Export callback contracts separately. Confect does not run Convex codegen, build or publish the package for you; verify the packed package in a separate consumer.
