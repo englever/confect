@@ -20,6 +20,35 @@ the reviewed PR and changeset do not establish submission intent. Fork-specific
 publishing and branch automation stay **fork only**. Upstream submissions go
 through Gagan.
 
+## Base
+
+`englever/main` tracks upstream 10.3.1
+([`eaa5da76`](https://github.com/rjdellecese/confect/commit/eaa5da76881455fe38d8d633eedbf79ebc5af01a)).
+It moved from 10.2.0 (`1f75cb80`) by merge in
+[#26](https://github.com/englever/confect/pull/26), and each later release lands
+the same way. The first build on this base is `10.3.1-englever.1`. The 10.3.1
+generator changes generated output, so consumers run `confect codegen` after
+upgrading.
+
+### [#26](https://github.com/englever/confect/pull/26) Move to upstream 10.3.1
+
+Merge upstream 10.3.1 and port the fork's component mode, declaration watching
+and output rollback into upstream's watcher, sync state and evaluator process.
+Regenerate fixtures and move Alchemy and Effect to the 10.3.1 toolchain. Drop
+[#6](https://github.com/englever/confect/pull/6), which upstream supersedes.
+
+Order the query stream effectful-transform test with scheduler yields instead of
+`Effect.delay`. convex-test 0.0.60 rejects `setTimeout` inside a mutation, as
+Convex does. Upstream 10.3.1 passes the test only because its lockfile resolves
+`@confect/test` to convex-test 0.0.56, which lacks that guard.
+
+The scheduled upstream check now dry-runs a merge of the newest stable release
+into `englever/main` and lists conflicting files, instead of rebasing.
+
+Changeset: none; the merge brings upstream's changesets, and the Convex peer floor
+is recorded under [#11](https://github.com/englever/confect/pull/11).
+Upstream: fork only.
+
 ## Component authoring and contracts
 
 ### [#5](https://github.com/englever/confect/pull/5) Author Convex components
@@ -126,14 +155,14 @@ Upstream: planned; no linked proposal verified.
 
 ### [#6](https://github.com/englever/confect/pull/6) Typecheck large generated specs
 
-Leave generated spec builder chains untyped internally while preserving the
-result's public type. Application and component projects with 47 or more function
-groups can typecheck without TypeScript's excessive-instantiation error.
+Dropped in [#26](https://github.com/englever/confect/pull/26). Upstream
+[`33eaf6a9`](https://github.com/rjdellecese/confect/commit/33eaf6a9), released in
+10.3.1, replaces generated spec builder chains with bulk records, so no chain is
+left to exceed TypeScript's instantiation depth. The fork's tests build specs
+from bulk records.
 
-Changeset: `fix-spec-chain-depth.md`.
-Upstream: backport of merged
-[upstream #774](https://github.com/rjdellecese/confect/pull/774); retain until a
-release containing it becomes the fork's base.
+Changeset: `fix-spec-chain-depth.md`, removed in #26.
+Upstream: superseded by upstream 10.3.1.
 
 ### [#15](https://github.com/englever/confect/pull/15) Reject component Node groups early
 
@@ -252,11 +281,13 @@ imports. Choose a fresh build number after a partial publish.
 Changeset: none; fork release infrastructure only.
 Upstream: fork only.
 
-### [#4](https://github.com/englever/confect/pull/4) Check rebases onto upstream releases
+### [#4](https://github.com/englever/confect/pull/4) Check upstream releases
 
-Try rebasing the patch stack onto the newest stable upstream core release daily
-and on demand. Report conflicts and clean up the scratch branch and worktree
-without moving the fork branch, leaving a maintainer to land the rebase.
+Try the newest stable upstream core release daily and on demand. Report
+conflicts and clean up the scratch worktree without moving the fork branch.
+[#26](https://github.com/englever/confect/pull/26) changed the check from a rebase
+to a merge dry run that lists conflicting files, leaving a maintainer to land the
+merge.
 
 Changeset: none; fork maintenance automation only.
 Upstream: fork only.

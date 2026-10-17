@@ -5,7 +5,7 @@
 This is [Englever's fork](https://github.com/englever/confect) of [Confect](https://github.com/rjdellecese/confect), maintained for Edcell.
 It adds Convex component authoring, typed callbacks, declarative backend configuration, HTTP route labels, Alchemy cloud and local providers, component testing support, and CLI fixes. See [CHANGES.md](CHANGES.md) for patches and upstream status.
 
-`englever/main` tracks stable upstream releases. A scheduled check tries the newest stable release and reports conflicts. A maintainer lands the rebase.
+`englever/main` tracks stable upstream releases. It is based on upstream 10.3.1. A scheduled check dry-runs a merge of the newest stable release and lists conflicting files. A maintainer lands the merge.
 
 Fork builds publish as `@englever/confect-*` on GitHub Packages only after all checks in the same commit's Packages workflow pass. To publish on demand, run Packages on `englever/main`. Choose a green [Packages run](https://github.com/englever/confect/actions/workflows/packages.yml) that published a build.
 Pin every alias to the same exact build. Do not use floating tags.
