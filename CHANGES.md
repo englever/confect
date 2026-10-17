@@ -210,6 +210,23 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Fork integration and publishing
 
+### [#25](https://github.com/englever/confect/pull/25) Gate fork publication and exercise a declared consumer
+
+Publish only after every check in the same commit's Packages workflow passes.
+Make the publisher reusable instead of starting an independent push run, and
+route manual publication through Packages so it has the same gate. Keep direct
+published-version checks available without publication.
+
+Exercise the packed PR build in a fresh strict-peer consumer before publication.
+Generate backend, auth and HTTP declarations and a Confect-authored component
+mounted at `/counter`. Call the component through the host, round-trip a callback
+with argument and return codecs, reject mismatched callback args, and fetch the
+host and component HTTP routes. Keep the published-build alias check after
+publication.
+
+Changeset: none; tooling only.
+Upstream: fork only.
+
 ### [#1](https://github.com/englever/confect/pull/1) Run checks on the fork branch
 
 Add `englever/main` to package and example workflow triggers so fork PRs receive

@@ -36,6 +36,18 @@ test("pins all four public aliases to the requested fork build", () => {
   });
 });
 
+test("uses packed fork packages without fetching their internal aliases", () => {
+  const manifest = Result.getOrThrow(
+    consumerManifest("10.2.0-englever.0", "/tmp/build/tarballs"),
+  );
+  expect(manifest.dependencies).toMatchObject({
+    "@confect/core": "file:/tmp/build/tarballs/core.tgz",
+    "@confect/server": "file:/tmp/build/tarballs/server.tgz",
+    "@confect/test": "file:/tmp/build/tarballs/test.tgz",
+    "@confect/cli": "file:/tmp/build/tarballs/cli.tgz",
+  });
+});
+
 test("prints the executable strict add command for the generated aliases", () => {
   const manifest = Result.getOrThrow(consumerManifest("10.2.0-englever.7"));
   expect(installCommand(manifest)).toBe(
@@ -99,6 +111,51 @@ allowBuilds:
       expect(yield* fs.exists(path.join(directory, "pnpm-lock.yaml"))).toBe(
         false,
       );
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
+  ));
+
+test("writes a declared host, mounted component and callback consumer", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = path.join(
+        yield* fs.makeTempDirectoryScoped(),
+        "consumer",
+      );
+      yield* writeConsumer(
+        directory,
+        Result.getOrThrow(consumerManifest("10.2.0-englever.0")),
+      );
+      for (const file of [
+        "confect/env.ts",
+        "confect/app.ts",
+        "confect/auth.ts",
+        "confect/http.ts",
+        "confect/component.ts",
+        "components/counter/confect/env.ts",
+        "components/counter/confect/app.ts",
+        "components/counter/confect/api.ts",
+        "components/counter/confect/http.ts",
+        "components/counter/confect/callbacks.ts",
+        "components/counter/confect/counter.spec.ts",
+        "components/counter/confect/counter.impl.ts",
+        "components/counter/convex/_generated/api.ts",
+        "components/counter/convex/_generated/component.ts",
+      ]) {
+        expect(yield* fs.exists(path.join(directory, file))).toBe(true);
+      }
+      for (const [file, contract] of [
+        ["confect/app.ts", 'httpPrefix: "/counter"'],
+        ["confect/component.ts", "Component.bind"],
+        ["components/counter/confect/callbacks.ts", "Callback.mutation"],
+        ["confect/hello.impl.ts", "Callback.create"],
+        ["consumer.test.ts", "toBe(43)"],
+      ] as const) {
+        expect(yield* fs.readFileString(path.join(directory, file))).toContain(
+          contract,
+        );
+      }
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer)),
   ));
 
