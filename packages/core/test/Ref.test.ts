@@ -1,4 +1,4 @@
-import { Component, GroupSpec, IdScope, Spec } from "@confect/core";
+import { Component, GroupSpec, IdScope } from "@confect/core";
 import { componentsGeneric } from "convex/server";
 import type {
   FunctionReference,
@@ -25,6 +25,7 @@ import * as PaginationOptions from "@confect/core/PaginationOptions";
 import * as PaginationResult from "@confect/core/PaginationResult";
 import * as Ref from "@confect/core/Ref";
 import type * as RuntimeAndFunctionType from "@confect/core/RuntimeAndFunctionType";
+import * as TestSpec from "./TestSpec";
 
 describe("Callable", () => {
   test("accepts own public and host internal refs with the same call contract", () => {
@@ -35,9 +36,9 @@ describe("Callable", () => {
       error: () => Schema.Struct({ message: Schema.String }),
     });
     const own = Ref.make("greetings", functionSpec);
-    const spec = Spec.make().add(
-      GroupSpec.makeAt("greetings").addFunction(functionSpec),
-    );
+    const spec = TestSpec.fromGroups({
+      greetings: GroupSpec.make().addFunction(functionSpec),
+    });
     const native = componentsGeneric() as unknown as {
       first: Component.Api<typeof spec, "first">;
     };

@@ -9,6 +9,7 @@ import * as Ref from "@confect/core/Ref";
 import * as Refs from "@confect/core/Refs";
 import type * as RuntimeAndFunctionType from "@confect/core/RuntimeAndFunctionType";
 import * as Spec from "@confect/core/Spec";
+import * as TestSpec from "./TestSpec";
 
 describe("make", () => {
   it("turns a spec into refs", () => {
@@ -378,8 +379,8 @@ describe("middleware error unions", () => {
       },
     ) {}
 
-    const spec = Spec.make().add(
-      GroupSpec.makeAt("gated")
+    const spec = TestSpec.fromGroups({
+      gated: GroupSpec.make()
         .middleware(GateMutations)
         .addFunction(
           FunctionSpec.publicMutation({
@@ -388,7 +389,7 @@ describe("middleware error unions", () => {
             error: () => NotFound,
           }),
         ),
-    );
+    });
     const refs = Refs.make(spec);
 
     expectTypeOf<

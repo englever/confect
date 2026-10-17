@@ -708,17 +708,18 @@ describe("create types", () => {
       returns: () => Schema.Null,
       error: () => Rejected,
     });
+    const gated = GroupSpec.make()
+      .middleware(Gate)
+      .addFunction(
+        FunctionSpec.internalMutation({
+          name: "onGuarded",
+          returns: () => Schema.Null,
+        }),
+      );
     const refs = Refs.make(
-      Spec.make().add(
-        GroupSpec.makeAt("gated")
-          .middleware(Gate)
-          .addFunction(
-            FunctionSpec.internalMutation({
-              name: "onGuarded",
-              returns: () => Schema.Null,
-            }),
-          ),
-      ),
+      Spec.fromGroups({ gated }) as Spec.Spec<{
+        readonly gated: GroupSpec.NamedAt<typeof gated, "gated">;
+      }>,
     );
     // @ts-expect-error H1 the host's middleware encodes Rejected.at as a number
     void Callback.create(Guarded, refs.internal.gated.onGuarded);
