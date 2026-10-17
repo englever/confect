@@ -43,6 +43,11 @@ Compare compiled validators before creating Confect handles; equal validators
 cannot distinguish every codec or refinement. Preserve return and error codecs
 on references, include middleware errors, and decode declared errors by tag.
 
+Raise core's Convex peer floor to 1.46.0, the first release that exports the
+`FunctionReference_future` type `Callback.toFuture` returns. The fork shipped the
+import against a 1.39.0 floor; upstream 10.3.1's baseline consumer check, which
+installs the lowest allowed Convex, caught it.
+
 Changeset: `add-component-callbacks.md`.
 Upstream: planned; no linked proposal verified.
 
