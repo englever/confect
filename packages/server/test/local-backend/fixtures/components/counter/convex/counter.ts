@@ -2,6 +2,7 @@ import registeredFunctions from "../confect/_generated/registeredFunctions/count
 
 export const cancel = registeredFunctions.cancel;
 export const create = registeredFunctions.create;
+export const createInternal = registeredFunctions.createInternal;
 export const environment = registeredFunctions.environment;
 export const hasAuth = registeredFunctions.hasAuth;
 export const list = registeredFunctions.list;
