@@ -405,7 +405,8 @@ const renderParentChildNameCollisionError = (
  */
 export const renderCodegenError = (error: CodegenError): string => {
   if (isBuildError(error)) return renderBuildError(error);
-  // The renderer pipeline below is at Effect's pipe arity limit.
+  // The renderer pipeline below is at Effect's pipe arity limit, so the
+  // fork's errors render here.
   if (error._tag === "ComponentNodeGroupError") {
     return singleLine(
       `Group "${error.groupPath}" in ${error.specPath} uses the Node runtime. Convex components do not support Node.js functions.`,
@@ -416,6 +417,22 @@ export const renderCodegenError = (error: CodegenError): string => {
       "Could not remove ",
       formatPath(error.path),
       ` after ${error.attempts} attempts because it is busy. Close other tools using it and try again.`,
+    );
+  }
+  if (error._tag === "InvalidDeclarationError") {
+    return singleLine(
+      "Declaration ",
+      formatPath(error.declarationPath),
+      ` is invalid: ${error.reason}`,
+    );
+  }
+  if (error._tag === "HandWrittenConvexFileError") {
+    return singleLine(
+      "Found a hand-written ",
+      formatPath(error.convexPath),
+      ". `confect codegen` writes it from ",
+      formatPath(error.declarationPath),
+      " now; move its contents there and delete the file.",
     );
   }
   return Match.value(error).pipe(
@@ -461,22 +478,6 @@ export const renderCodegenError = (error: CodegenError): string => {
     Match.tag("LegacySchemaFileError", renderLegacySchemaFileError),
     Match.tag("ConflictingDocNameError", renderConflictingDocNameError),
     Match.tag("InvalidConvexConfigError", renderInvalidConvexConfigError),
-    Match.tag("InvalidDeclarationError", (declarationError) =>
-      singleLine(
-        "Declaration ",
-        formatPath(declarationError.declarationPath),
-        ` is invalid: ${declarationError.reason}`,
-      ),
-    ),
-    Match.tag("HandWrittenConvexFileError", (handWritten) =>
-      singleLine(
-        "Found a hand-written ",
-        formatPath(handWritten.convexPath),
-        ". `confect codegen` writes it from ",
-        formatPath(handWritten.declarationPath),
-        " now; move its contents there and delete the file.",
-      ),
-    ),
     Match.exhaustive,
   );
 };
