@@ -185,7 +185,7 @@ Upstream: unrecorded; no linked proposal verified.
 
 ## Testing and documentation
 
-### Document authored and generated component code
+### [#28](https://github.com/englever/confect/pull/28) Document authored and generated component code
 
 Rewrite `apps/docs/server/components.mdx` around the packed consumer fixture's
 authored declarations and generated Convex files. Cover route composition,
@@ -194,7 +194,6 @@ Fix generator examples in `apps/docs/server/backend-declaration.mdx` and
 `apps/docs/guides/alchemy.mdx`; clarify the flat Alchemy env shape, development
 loops and regeneration after upgrading to the 10.3.1 base.
 
-PR: this pull request.
 Changeset: none; documentation only.
 Upstream: fork only.
 
