@@ -161,6 +161,12 @@ export const api: {
  */
 export const internal: {
   counter: {
+    createInternal: FunctionReference<
+      "mutation",
+      "internal",
+      { count: string; run: string },
+      Id<"counters">
+    >;
     tick: FunctionReference<"mutation", "internal", {}, null>;
   };
   deliveries: {

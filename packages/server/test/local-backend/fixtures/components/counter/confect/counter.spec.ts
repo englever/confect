@@ -29,6 +29,13 @@ export default GroupSpec.make()
     }),
   )
   .addFunction(
+    FunctionSpec.internalMutation({
+      name: "createInternal",
+      args: () => ({ run: Schema.String, count: Schema.FiniteFromString }),
+      returns: () => Id("counters"),
+    }),
+  )
+  .addFunction(
     FunctionSpec.publicQuery({
       name: "list",
       args: () => ({ run: Schema.String }),

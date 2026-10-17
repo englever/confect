@@ -27,6 +27,16 @@ const create = FunctionImpl.make(schema, counter, "create", (args) =>
     return yield* writer.table("counters").insert(args);
   }).pipe(Effect.orDie),
 );
+const createInternal = FunctionImpl.make(
+  schema,
+  counter,
+  "createInternal",
+  (args) =>
+    Effect.gen(function* () {
+      const writer = yield* DatabaseWriter;
+      return yield* writer.table("counters").insert(args);
+    }).pipe(Effect.orDie),
+);
 const list = FunctionImpl.make(schema, counter, "list", ({ run }) =>
   Effect.gen(function* () {
     const reader = yield* DatabaseReader;
@@ -51,7 +61,7 @@ const schedule = FunctionImpl.make(schema, counter, "schedule", (args) =>
     const scheduler = yield* Scheduler;
     return yield* scheduler.runAfter(
       Duration.zero,
-      refs.public.counter.create,
+      refs.internal.counter.createInternal,
       args,
     );
   }),
@@ -65,19 +75,19 @@ const scheduleAndCancel = FunctionImpl.make(
       const scheduler = yield* Scheduler;
       const after = yield* scheduler.runAfter(
         Duration.millis(100),
-        refs.public.counter.create,
+        refs.internal.counter.createInternal,
         { run, count: 999 },
       );
       const at = yield* scheduler.runAt(
         DateTime.addDuration(yield* DateTime.now, Duration.millis(100)),
-        refs.public.counter.create,
+        refs.internal.counter.createInternal,
         { run, count: 998 },
       );
       yield* scheduler.cancel(after);
       yield* scheduler.cancel(at);
       const control = yield* scheduler.runAfter(
         Duration.millis(200),
-        refs.public.counter.create,
+        refs.internal.counter.createInternal,
         { run, count: 17 },
       );
       return { after, at, control };
@@ -185,6 +195,7 @@ const ticks = FunctionImpl.make(schema, counter, "ticks", () =>
 export default GroupImpl.make(schema, counter).pipe(
   Layer.provide([
     create,
+    createInternal,
     list,
     reject,
     schedule,
