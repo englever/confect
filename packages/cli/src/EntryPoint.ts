@@ -18,6 +18,8 @@ import { discoverLeafImplFiles, discoverLeafSpecFiles } from "./LeafModule";
 import { discoverTableFiles, type TableModule } from "./TableModule";
 
 export type Kind = Data.TaggedEnum<{
+  Env: { readonly relativePath: "env.ts" };
+  App: { readonly relativePath: "app.ts" };
   Spec: { readonly relativePath: SpecModulePath.SpecModulePath };
   Impl: { readonly relativePath: ImplModulePath };
   Table: { readonly relativePath: TableModulePath };
@@ -83,6 +85,8 @@ export const isOptional = Predicate.or(
 export const parse = (
   relativePath: string,
 ): Option.Option<Exclude<Kind, { readonly _tag: "Config" }>> => {
+  if (relativePath === "env.ts") return Option.some(Kind.Env({ relativePath }));
+  if (relativePath === "app.ts") return Option.some(Kind.App({ relativePath }));
   if (relativePath === "http.ts")
     return Option.some(Kind.Http({ relativePath }));
   if (relativePath === "crons.ts")
@@ -123,7 +127,10 @@ export const discover = Effect.gen(function* () {
     });
   });
 
+  const declaration = yield* tryEntry(Kind.App({ relativePath: "app.ts" }));
   const fixedEntryOptions = yield* Effect.all([
+    tryEntry(Kind.Env({ relativePath: "env.ts" })),
+    Effect.succeed(declaration),
     tryEntry(Kind.Http({ relativePath: "http.ts" })),
     tryEntry(Kind.Crons({ relativePath: "crons.ts" })),
     tryEntry(Kind.Auth({ relativePath: "auth.ts" })),
@@ -145,7 +152,8 @@ export const discover = Effect.gen(function* () {
   const convexDirectory = yield* ConvexDirectory.get;
   const convexConfigEntryOption = yield* Effect.gen(function* () {
     const absolutePath = path.join(convexDirectory, CONVEX_CONFIG_FILENAME);
-    if (!(yield* fs.exists(absolutePath))) {
+    // A declared backend's `convex.config.ts` is codegen output, not input.
+    if (Option.isSome(declaration) || !(yield* fs.exists(absolutePath))) {
       return Option.none<EntryPoint>();
     }
     return Option.some<EntryPoint>({
