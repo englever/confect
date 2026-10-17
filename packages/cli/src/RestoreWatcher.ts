@@ -2,33 +2,31 @@ import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FileSystem from "effect/FileSystem";
 import * as Scope from "effect/Scope";
-import * as Stream from "effect/Stream";
-import type * as PlatformError from "effect/PlatformError";
 
-export const make = Effect.fn("RestoreWatcher.make")(function* (
-  directory: string,
-  onEvent: (event: FileSystem.WatchEvent) => Effect.Effect<void>,
+/**
+ * Run a directory watch that a restore can pause: Windows refuses to remove a
+ * directory while a recursive watch holds it open.
+ */
+// Untraced, because restarts run in the captured context and would carry this
+// constructor's stack frame into their failures.
+export const make = Effect.fnUntraced(function* <E, R>(
+  watch: Effect.Effect<void, E, R>,
 ) {
-  const fs = yield* FileSystem.FileSystem;
   const parent = yield* Effect.scope;
-  const failed = yield* Deferred.make<never, PlatformError.PlatformError>();
+  const context = yield* Effect.context<R>();
+  const failed = yield* Deferred.make<never, E>();
   const start = Effect.gen(function* () {
     const scope = yield* Scope.fork(parent, "sequential");
-    yield* fs
-      .watch(directory, {
-        recursive: true,
-      })
-      .pipe(
-        Stream.runForEach(onEvent),
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
-            ? Deferred.failCause(failed, exit.cause)
-            : Effect.void,
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      );
+    yield* watch.pipe(
+      Effect.provide(context),
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
+          ? Deferred.failCause(failed, exit.cause)
+          : Effect.void,
+      ),
+      Effect.forkIn(scope, { startImmediately: true }),
+    );
     return scope;
   });
   let scope = yield* start;

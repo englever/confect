@@ -10,6 +10,13 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as RestoreWatcher from "@confect/cli/RestoreWatcher";
 
+const watchConfect = (
+  onEvent: (event: FileSystem.WatchEvent) => Effect.Effect<void>,
+) =>
+  FileSystem.FileSystem.use((fs) =>
+    fs.watch("confect", { recursive: true }).pipe(Stream.runForEach(onEvent)),
+  );
+
 it.effect(
   "releases the recursive watch across restore and resumes after failure",
   () =>
@@ -34,8 +41,8 @@ it.effect(
             ),
           ),
       });
-      const watcher = yield* RestoreWatcher.make("confect", (event) =>
-        Queue.offer(events, event).pipe(Effect.asVoid),
+      const watcher = yield* RestoreWatcher.make(
+        watchConfect((event) => Queue.offer(events, event).pipe(Effect.asVoid)),
       ).pipe(Effect.provideService(FileSystem.FileSystem, fs));
       expect(yield* Queue.take(acquisitions)).toBe(1);
       const result = yield* Effect.gen(function* () {
@@ -78,8 +85,7 @@ it.effect("propagates watcher acquisition defects after resume", () =>
         ),
     });
     const watcher = yield* RestoreWatcher.make(
-      "confect",
-      () => Effect.void,
+      watchConfect(() => Effect.void),
     ).pipe(Effect.provideService(FileSystem.FileSystem, fs));
     yield* Queue.take(acquired);
     yield* watcher.duringRestore.pipe(Effect.scoped);
@@ -108,8 +114,7 @@ it.effect("propagates cleanup defects when the watcher is paused", () =>
         ),
     });
     const watcher = yield* RestoreWatcher.make(
-      "confect",
-      () => Effect.void,
+      watchConfect(() => Effect.void),
     ).pipe(Effect.provideService(FileSystem.FileSystem, fs));
     yield* Queue.take(acquired);
     yield* watcher.duringRestore.pipe(Effect.scoped);
