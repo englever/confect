@@ -133,9 +133,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
             version=$(jq -r '.version' "$RUNNER_TEMP/confect-packages/plan.json")
-            bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$version" "$RUNNER_TEMP/confect-packages/tarballs"
+            bun scripts/forkConsumer.ts "$RUNNER_TEMP/confect-consumer" "$version" "$RUNNER_TEMP/confect-packages/tarballs"
           else
-            bun scripts/consumerFixture.ts "$RUNNER_TEMP/confect-consumer" "$BUILD_VERSION"
+            bun scripts/forkConsumer.ts "$RUNNER_TEMP/confect-consumer" "$BUILD_VERSION"
           fi
           # pnpm 12 ignores interpolated credentials in a project .npmrc.
           printf '%s\n' \

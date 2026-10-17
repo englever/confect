@@ -23,7 +23,7 @@ Replace `<version>` with the build you chose. Aliases preserve `@confect/*` impo
 pnpm add --strict-peer-dependencies '@confect/core@npm:@englever/confect-core@<version>' '@confect/server@npm:@englever/confect-server@<version>' '@confect/test@npm:@englever/confect-test@<version>' '@confect/cli@npm:@englever/confect-cli@<version>'
 ```
 
-Each successful install check uploads a consumer artifact with its pinned manifest, lockfile and install command; `bun scripts/consumerFixture.ts <dir> <version>` regenerates it.
+Each successful install check uploads a consumer artifact with its pinned manifest, lockfile and install command; `bun scripts/forkConsumer.ts <dir> <version>` regenerates it.
 The install check generates a declared backend and a component mounted at `/counter`, calls the component through the host, checks callback arguments and decodes callback results, and fetches the declared HTTP routes. PRs run it against packed tarballs before publication. Use "Publish fork builds" with an existing version to check a published build without publishing again.
 Another repository's workflow token needs package read access granted separately.
 

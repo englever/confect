@@ -9,7 +9,7 @@ import {
   consumerManifest,
   installCommand,
   writeConsumer,
-} from "./consumerFixture";
+} from "./forkConsumer";
 
 test("pins all four public aliases to the requested fork build", () => {
   expect(Result.getOrThrow(consumerManifest("10.2.0-englever.7"))).toEqual({
